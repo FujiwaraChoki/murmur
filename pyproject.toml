@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "murmur"
-version = "0.1.0"
+version = "0.1.1"
 description = "Open-source voice dictation using Nvidia Parakeet"
 readme = "README.md"
 license = "MIT"
@@ -62,3 +62,9 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# PyObjC requires camelCase method names with trailing underscores for Objective-C selectors
+"murmur/app.py" = ["N802"]
+"murmur/overlay.py" = ["N802"]
+"murmur/settings.py" = ["N802"]

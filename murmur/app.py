@@ -11,7 +11,7 @@ import time
 import AppKit
 import objc
 import sounddevice as sd
-from Foundation import NSDate, NSRunLoop
+from PyObjCTools import AppHelper
 
 from murmur.audio import AudioRecorder
 from murmur.hotkey import HotkeyHandler
@@ -42,9 +42,7 @@ class StatusBarController(AppKit.NSObject):
     def setup(self):
         """Create the status bar item."""
         status_bar = AppKit.NSStatusBar.systemStatusBar()
-        self._status_item = status_bar.statusItemWithLength_(
-            AppKit.NSVariableStatusItemLength
-        )
+        self._status_item = status_bar.statusItemWithLength_(AppKit.NSVariableStatusItemLength)
 
         # Load menu bar icon
         icon_path = os.path.join(
@@ -314,10 +312,8 @@ class MurmurApp:
             """Handle settings window close."""
             self._settings_window = None
 
-        self._settings_window = SettingsWindow(
-            current_config=self._config,
-            on_save=on_save,
-            on_close=on_close,
+        self._settings_window = SettingsWindow.alloc().initWithConfig_onSave_onClose_(
+            self._config, on_save, on_close
         )
         self._settings_window.show()
 
@@ -376,12 +372,8 @@ class MurmurApp:
         # Run the macOS event loop
         print("Murmur is running. Press Ctrl+C to quit.")
         try:
-            # Use NSRunLoop for the macOS event loop
-            while self._running:
-                NSRunLoop.currentRunLoop().runMode_beforeDate_(
-                    AppKit.NSDefaultRunLoopMode,
-                    NSDate.dateWithTimeIntervalSinceNow_(0.1),
-                )
+            # Use AppHelper for proper event loop handling
+            AppHelper.runEventLoop()
         except KeyboardInterrupt:
             pass
         finally:
@@ -390,7 +382,7 @@ class MurmurApp:
     def _quit(self) -> None:
         """Quit the application from menu."""
         self.stop()
-        sys.exit(0)
+        AppHelper.stopEventLoop()
 
     def stop(self) -> None:
         """Stop the application."""

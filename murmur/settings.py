@@ -69,14 +69,14 @@ class SettingsWindowDelegate(NSObject):
             self._callback()
 
 
-class SettingsWindow:
+class SettingsWindow(NSObject):
     """Settings window for configuring Murmur."""
 
-    def __init__(
+    def initWithConfig_onSave_onClose_(
         self,
         current_config: dict,
-        on_save: Callable[[dict], None] | None = None,
-        on_close: Callable[[], None] | None = None,
+        on_save: Callable[[dict], None] | None,
+        on_close: Callable[[], None] | None,
     ):
         """Initialize the settings window.
 
@@ -85,6 +85,9 @@ class SettingsWindow:
             on_save: Callback when settings are saved.
             on_close: Callback when window is closed.
         """
+        self = objc.super(SettingsWindow, self).init()
+        if self is None:
+            return None
         self._config = current_config.copy()
         self._on_save = on_save
         self._on_close = on_close
@@ -93,6 +96,7 @@ class SettingsWindow:
         self._mic_popup = None
         self._update_checkbox = None
         self._devices = []
+        return self
 
     def show(self) -> None:
         """Show the settings window."""

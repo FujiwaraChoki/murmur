@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-from typing import Callable
 
 import numpy as np
 import sounddevice as sd

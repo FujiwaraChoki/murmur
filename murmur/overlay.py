@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import math
-import threading
 from enum import Enum
 
 import AppKit
 import objc
 import Quartz
-from Foundation import NSObject, NSTimer
+from Foundation import NSTimer
 
 
 class IndicatorState(Enum):
@@ -53,31 +52,22 @@ class IndicatorView(AppKit.NSView):
 
     def setOnClick_(self, callback):
         """Set the click callback."""
-        print(f"[DEBUG] setOnClick_ called with: {callback}")
         self._on_click = callback
 
     def acceptsFirstMouse_(self, event):
         """Accept clicks even when window is not key window."""
-        print("[DEBUG] acceptsFirstMouse_ called")
         return True
 
     def hitTest_(self, point):
         """Override hit testing to capture clicks on transparent areas."""
-        # Check if point is within our frame (point is in superview coordinates)
-        print(f"[DEBUG] hitTest_ called with point: {point}")
         if AppKit.NSPointInRect(point, self.frame()):
-            print("[DEBUG] hitTest_ returning self")
             return self
-        print("[DEBUG] hitTest_ returning None")
         return None
 
     def mouseDown_(self, event):
         """Handle mouse down event."""
-        print(f"[DEBUG] mouseDown_ called! _on_click={self._on_click}")
         if self._on_click:
-            print("[DEBUG] Calling _on_click callback...")
             self._on_click()
-            print("[DEBUG] Callback completed")
 
     def _create_rounded_rect_path(self, context, bounds):
         """Create a rounded rectangle path."""
@@ -132,13 +122,15 @@ class IndicatorView(AppKit.NSView):
             -glow_expand,
             -glow_expand / 2,
             bounds.size.width + glow_expand * 2,
-            bounds.size.height + glow_expand
+            bounds.size.height + glow_expand,
         )
         Quartz.CGContextSetRGBFillColor(context, r, g, b, glow_alpha)
         glow_radius = (bounds.size.height + glow_expand) / 2
         Quartz.CGContextBeginPath(context)
         Quartz.CGContextMoveToPoint(context, glow_radius, -glow_expand / 2)
-        Quartz.CGContextAddLineToPoint(context, glow_bounds.size.width - glow_radius, -glow_expand / 2)
+        Quartz.CGContextAddLineToPoint(
+            context, glow_bounds.size.width - glow_radius, -glow_expand / 2
+        )
         Quartz.CGContextAddArc(
             context,
             glow_bounds.size.width - glow_radius - glow_expand,
@@ -179,7 +171,9 @@ class IndicatorView(AppKit.NSView):
         Quartz.CGContextSetRGBFillColor(context, 1.0, 1.0, 1.0, highlight_alpha)
         Quartz.CGContextFillRect(
             context,
-            Quartz.CGRectMake(0, bounds.size.height * 0.5, bounds.size.width, bounds.size.height * 0.5)
+            Quartz.CGRectMake(
+                0, bounds.size.height * 0.5, bounds.size.width, bounds.size.height * 0.5
+            ),
         )
 
         Quartz.CGContextRestoreGState(context)
@@ -213,8 +207,14 @@ class IndicatorView(AppKit.NSView):
         self._animation_phase = 0.0
         self._animation_speed = speed
 
-        self._animation_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-            1.0 / 60.0, self, "animationTick:", None, True  # 60fps
+        self._animation_timer = (
+            NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                1.0 / 60.0,
+                self,
+                "animationTick:",
+                None,
+                True,  # 60fps
+            )
         )
 
     def animationTick_(self, timer):
