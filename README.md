@@ -23,11 +23,9 @@ Open-source voice dictation for macOS using Nvidia's Parakeet ASR model, optimiz
 
 ## Installation
 
-### From PyPI (Recommended)
+### Download DMG (Recommended)
 
-```bash
-pip install murmur
-```
+Download the latest `.dmg` from [GitHub Releases](https://github.com/FujiwaraChoki/murmur/releases), open it, and drag Murmur to Applications.
 
 ### From Source
 
