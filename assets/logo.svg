@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Three concentric arcs representing sound waves / a murmur -->
+  <g fill="none" stroke="#1a1a1a" stroke-width="6" stroke-linecap="round">
+    <!-- Inner arc -->
+    <path d="M 35 65 Q 35 35 50 35 Q 65 35 65 65"/>
+    <!-- Middle arc -->
+    <path d="M 25 70 Q 25 25 50 25 Q 75 25 75 70"/>
+    <!-- Outer arc -->
+    <path d="M 15 75 Q 15 15 50 15 Q 85 15 85 75"/>
+  </g>
+  <!-- Small dot at the origin point representing the voice source -->
+  <circle cx="50" cy="75" r="6" fill="#1a1a1a"/>
+</svg>

@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "murmur"
+version = "0.1.0"
+description = "Open-source voice dictation using Nvidia Parakeet"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Murmur Contributors" }
+]
+keywords = ["voice", "dictation", "speech-to-text", "asr", "parakeet"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: MacOS X",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+    "parakeet-mlx>=0.3.0",
+    "sounddevice>=0.4.6",
+    "soundfile>=0.12.0",
+    "numpy>=1.24.0",
+    "pynput>=1.7.6",
+    "pyobjc-framework-Cocoa>=10.0",
+    "pyobjc-framework-Quartz>=10.0",
+    "pyperclip>=1.8.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+murmur = "murmur.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["murmur"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests (may be slower)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]

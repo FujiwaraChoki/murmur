@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Minimalist "M" formed by sound waves -->
+  <g fill="none" stroke="#1a1a1a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 20 70 L 20 30 L 50 55 L 80 30 L 80 70"/>
+  </g>
+  <!-- Single subtle wave emanating from center -->
+  <path d="M 42 45 Q 50 35 58 45" fill="none" stroke="#1a1a1a" stroke-width="4" stroke-linecap="round"/>
+</svg>
