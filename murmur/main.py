@@ -21,8 +21,8 @@ def main() -> int:
     parser.add_argument(
         "--hotkey",
         "-k",
-        default="cmd+shift+space",
-        help="Hotkey combination to hold for recording (default: cmd+shift+space)",
+        default="alt+shift",
+        help="Hotkey combination to hold for recording (default: alt+shift)",
     )
     parser.add_argument(
         "--list-devices",

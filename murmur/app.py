@@ -181,7 +181,7 @@ class MurmurApp:
     @property
     def hotkey_str(self) -> str:
         """Get the hotkey from config."""
-        return self._config.get("hotkey", "cmd+shift+space")
+        return self._config.get("hotkey", "alt+shift")
 
     @property
     def microphone_index(self) -> int | None:
@@ -287,14 +287,38 @@ class MurmurApp:
 
             # Update hotkey if changed
             if new_config.get("hotkey") != old_hotkey and self._hotkey_handler:
-                self._hotkey_handler.stop()
-                self._hotkey_handler = HotkeyHandler(
-                    hotkey=new_config.get("hotkey", "cmd+shift+space"),
-                    on_press_start=self._start_recording,
-                    on_release_end=self._stop_recording,
-                )
-                self._hotkey_handler.start()
-                print(f"Hotkey updated to: {new_config.get('hotkey')}")
+                new_hotkey = new_config.get("hotkey", "alt+shift")
+                try:
+                    # Validate first before stopping the old handler
+                    is_valid, error = HotkeyHandler.validate_hotkey(new_hotkey)
+                    if not is_valid:
+                        print(f"Invalid hotkey '{new_hotkey}': {error}")
+                        print(f"Keeping previous hotkey: {old_hotkey}")
+                        self._config["hotkey"] = old_hotkey
+                        return
+
+                    self._hotkey_handler.stop()
+                    self._hotkey_handler = HotkeyHandler(
+                        hotkey=new_hotkey,
+                        on_press_start=self._start_recording,
+                        on_release_end=self._stop_recording,
+                    )
+                    self._hotkey_handler.start()
+                    print(f"Hotkey updated to: {new_hotkey}")
+                except Exception as e:
+                    print(f"Failed to update hotkey: {e}")
+                    print(f"Keeping previous hotkey: {old_hotkey}")
+                    self._config["hotkey"] = old_hotkey
+                    # Try to restart the old handler
+                    try:
+                        self._hotkey_handler = HotkeyHandler(
+                            hotkey=old_hotkey,
+                            on_press_start=self._start_recording,
+                            on_release_end=self._stop_recording,
+                        )
+                        self._hotkey_handler.start()
+                    except Exception:
+                        print("CRITICAL: Could not restore hotkey handler")
 
             # Update microphone if changed
             if new_config.get("microphone_index") != old_mic:

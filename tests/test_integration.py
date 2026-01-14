@@ -17,13 +17,13 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def mock_all_hardware(mock_sounddevice, mock_parakeet, mock_pyperclip, mock_keyboard_controller):
+def mock_all_hardware(mock_sounddevice, mock_parakeet, mock_pyperclip, mock_quartz):
     """Mock all hardware-dependent modules."""
     return {
         "sounddevice": mock_sounddevice,
         "parakeet": mock_parakeet,
         "pyperclip": mock_pyperclip,
-        "keyboard": mock_keyboard_controller,
+        "quartz": mock_quartz,
     }
 
 
@@ -78,16 +78,14 @@ class TestEndToEndWorkflow:
 
     def test_hotkey_change_takes_effect(self):
         """Changing hotkey in settings updates handler."""
-        from pynput import keyboard
-
         from murmur.hotkey import HotkeyHandler
 
         handler = HotkeyHandler(hotkey="cmd+shift+space")
-        assert keyboard.Key.space == handler._target_key
+        assert handler._target_keycode == 49  # space keycode
 
         # Change hotkey
         handler.set_hotkey("cmd+enter")
-        assert handler._target_key == keyboard.Key.enter
+        assert handler._target_keycode == 36  # enter keycode
 
 
 class TestComponentIntegration:
@@ -182,17 +180,20 @@ class TestAudioTranscriberPipeline:
 class TestMacOSIntegration:
     """macOS-specific integration tests."""
 
-    def test_hotkey_listener_can_start(self):
-        """Hotkey listener can be started on macOS."""
-        from pynput import keyboard
-
+    def test_hotkey_handler_can_start(self):
+        """Hotkey handler can be started on macOS."""
         from murmur.hotkey import HotkeyHandler
 
-        # Mock the Listener to avoid macOS permission issues in CI
-        mock_listener = MagicMock()
-        with patch.object(keyboard, "Listener", return_value=mock_listener):
+        # Mock Quartz to avoid macOS permission issues in CI
+        with patch("murmur.hotkey.Quartz") as mock_quartz:
+            mock_quartz.CGEventTapCreate.return_value = MagicMock()
+            mock_quartz.CFMachPortCreateRunLoopSource.return_value = MagicMock()
+            mock_quartz.CFRunLoopGetCurrent.return_value = MagicMock()
+
             handler = HotkeyHandler(hotkey="cmd+shift+space")
             handler.start()
-            assert handler._listener is not None
+            # Give thread time to start
+            time.sleep(0.1)
+            assert handler._running is True
             handler.stop()
-            assert handler._listener is None
+            assert handler._running is False

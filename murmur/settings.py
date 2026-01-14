@@ -8,9 +8,11 @@ from typing import Callable
 
 import AppKit
 import objc
+from AppKit import NSEvent
 from Foundation import NSObject
 
 from murmur.audio import list_audio_devices
+from murmur.hotkey import HotkeyHandler
 
 # Config file location
 CONFIG_DIR = Path.home() / ".config" / "murmur"
@@ -18,11 +20,247 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 # Default configuration
 DEFAULT_CONFIG = {
-    "hotkey": "cmd+shift+space",
+    "hotkey": "alt+shift",
     "microphone_index": None,  # None means default device
     "model": "mlx-community/parakeet-tdt-0.6b-v2",
     "check_updates": True,  # Check for updates on startup
 }
+
+# Modifier key mappings for display
+MODIFIER_FLAGS = {
+    AppKit.NSEventModifierFlagCommand: "cmd",
+    AppKit.NSEventModifierFlagShift: "shift",
+    AppKit.NSEventModifierFlagOption: "alt",
+    AppKit.NSEventModifierFlagControl: "ctrl",
+}
+
+# Special key code mappings
+SPECIAL_KEYCODES = {
+    49: "space",
+    36: "enter",
+    48: "tab",
+    53: "escape",
+    51: "backspace",
+    117: "delete",
+    126: "up",
+    125: "down",
+    123: "left",
+    124: "right",
+    115: "home",
+    119: "end",
+    116: "page_up",
+    121: "page_down",
+    122: "f1",
+    120: "f2",
+    99: "f3",
+    118: "f4",
+    96: "f5",
+    97: "f6",
+    98: "f7",
+    100: "f8",
+    101: "f9",
+    109: "f10",
+    103: "f11",
+    111: "f12",
+}
+
+
+class ShortcutRecorderView(AppKit.NSView):
+    """A view that records keyboard shortcuts when clicked."""
+
+    def initWithFrame_onChange_(self, frame, on_change: Callable[[str], None] | None):
+        """Initialize the shortcut recorder.
+
+        Args:
+            frame: The frame rectangle for the view.
+            on_change: Callback when the shortcut changes.
+        """
+        self = objc.super(ShortcutRecorderView, self).initWithFrame_(frame)
+        if self is None:
+            return None
+        self._shortcut = ""
+        self._is_recording = False
+        self._on_change = on_change
+        self._local_monitor = None
+        self._current_modifiers = []  # Modifiers currently held during recording
+        return self
+
+    @objc.python_method
+    def set_shortcut(self, shortcut: str) -> None:
+        """Set the current shortcut string."""
+        self._shortcut = shortcut
+        self.setNeedsDisplay_(True)
+
+    @objc.python_method
+    def get_shortcut(self) -> str:
+        """Get the current shortcut string."""
+        return self._shortcut
+
+    def acceptsFirstResponder(self) -> bool:
+        return True
+
+    def drawRect_(self, rect):
+        """Draw the view."""
+        bounds = self.bounds()
+
+        # Background
+        if self._is_recording:
+            AppKit.NSColor.selectedControlColor().set()
+        else:
+            AppKit.NSColor.controlBackgroundColor().set()
+        AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            bounds, 4.0, 4.0
+        ).fill()
+
+        # Border
+        if self._is_recording:
+            AppKit.NSColor.keyboardFocusIndicatorColor().set()
+        else:
+            AppKit.NSColor.separatorColor().set()
+        AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            bounds, 4.0, 4.0
+        ).stroke()
+
+        # Text
+        if self._is_recording:
+            if self._current_modifiers:
+                # Show currently held modifiers
+                if len(self._current_modifiers) >= 2:
+                    text = "+".join(self._current_modifiers) + " (Enter to confirm)"
+                else:
+                    text = "+".join(self._current_modifiers) + "+..."
+                color = AppKit.NSColor.labelColor()
+            else:
+                text = "Press shortcut..."
+                color = AppKit.NSColor.secondaryLabelColor()
+        elif self._shortcut:
+            text = self._shortcut
+            color = AppKit.NSColor.labelColor()
+        else:
+            text = "Click to record"
+            color = AppKit.NSColor.placeholderTextColor()
+
+        attrs = {
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_(13),
+            AppKit.NSForegroundColorAttributeName: color,
+        }
+        attr_str = AppKit.NSAttributedString.alloc().initWithString_attributes_(text, attrs)
+        text_size = attr_str.size()
+        text_point = AppKit.NSMakePoint(
+            (bounds.size.width - text_size.width) / 2,
+            (bounds.size.height - text_size.height) / 2,
+        )
+        attr_str.drawAtPoint_(text_point)
+
+    def mouseDown_(self, event):
+        """Handle mouse click to start/stop recording."""
+        if self._is_recording:
+            self._stop_recording()
+        else:
+            self._start_recording()
+
+    @objc.python_method
+    def _start_recording(self) -> None:
+        """Start recording keyboard input."""
+        self._is_recording = True
+        self._current_modifiers = []  # Track currently held modifiers
+        self.setNeedsDisplay_(True)
+
+        # Install local event monitor for key events AND modifier changes
+        def handle_event(event):
+            event_type = event.type()
+            if event_type == AppKit.NSEventTypeKeyDown:
+                self._handle_key_event(event)
+                return None  # Consume the event
+            elif event_type == AppKit.NSEventTypeFlagsChanged:
+                self._handle_flags_changed(event)
+            return event
+
+        # Monitor both keyDown and flagsChanged events
+        event_mask = AppKit.NSEventMaskKeyDown | AppKit.NSEventMaskFlagsChanged
+        self._local_monitor = NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
+            event_mask, handle_event
+        )
+
+    @objc.python_method
+    def _stop_recording(self) -> None:
+        """Stop recording keyboard input."""
+        self._is_recording = False
+        self._current_modifiers = []
+        if self._local_monitor:
+            NSEvent.removeMonitor_(self._local_monitor)
+            self._local_monitor = None
+        self.setNeedsDisplay_(True)
+
+    @objc.python_method
+    def _handle_flags_changed(self, event) -> None:
+        """Handle modifier key changes to show current modifiers."""
+        raw_modifiers = event.modifierFlags()
+
+        # Build list of currently held modifiers
+        parts = []
+        if raw_modifiers & AppKit.NSEventModifierFlagCommand:
+            parts.append("cmd")
+        if raw_modifiers & AppKit.NSEventModifierFlagControl:
+            parts.append("ctrl")
+        if raw_modifiers & AppKit.NSEventModifierFlagOption:
+            parts.append("alt")
+        if raw_modifiers & AppKit.NSEventModifierFlagShift:
+            parts.append("shift")
+
+        self._current_modifiers = parts
+        self.setNeedsDisplay_(True)  # Redraw to show current modifiers
+
+    @objc.python_method
+    def _handle_key_event(self, event) -> None:
+        """Handle a key event and build the shortcut string."""
+        keycode = event.keyCode()
+
+        # Escape cancels recording
+        if keycode == 53:
+            self._stop_recording()
+            return
+
+        # Enter confirms modifier-only shortcut (if at least 2 modifiers held)
+        if keycode == 36 and len(self._current_modifiers) >= 2:
+            shortcut = "+".join(self._current_modifiers)
+            is_valid, error = HotkeyHandler.validate_hotkey(shortcut)
+            if is_valid:
+                self._shortcut = shortcut
+                if self._on_change:
+                    self._on_change(shortcut)
+                self._stop_recording()
+                return
+
+        # Get the key from keycode
+        key = None
+        if keycode in SPECIAL_KEYCODES:
+            key = SPECIAL_KEYCODES[keycode]
+        else:
+            chars = event.charactersIgnoringModifiers()
+            if chars and len(chars) == 1:
+                char = chars.lower()
+                if char.isalnum():
+                    key = char
+
+        # Need at least one modifier and a key
+        if self._current_modifiers and key:
+            parts = self._current_modifiers + [key]
+            shortcut = "+".join(parts)
+
+            # Validate the shortcut
+            is_valid, error = HotkeyHandler.validate_hotkey(shortcut)
+            if is_valid:
+                self._shortcut = shortcut
+                if self._on_change:
+                    self._on_change(shortcut)
+                self._stop_recording()
+
+    def viewDidMoveToWindow(self):
+        """Clean up when view is removed from window."""
+        if self.window() is None and self._local_monitor:
+            NSEvent.removeMonitor_(self._local_monitor)
+            self._local_monitor = None
 
 
 def load_config() -> dict:
@@ -92,11 +330,16 @@ class SettingsWindow(NSObject):
         self._on_save = on_save
         self._on_close = on_close
         self._window = None
-        self._hotkey_field = None
+        self._hotkey_recorder = None
         self._mic_popup = None
         self._update_checkbox = None
         self._devices = []
         return self
+
+    @objc.python_method
+    def _on_hotkey_changed(self, shortcut: str) -> None:
+        """Handle hotkey change from recorder."""
+        pass  # The recorder validates internally; shortcut is stored in the recorder
 
     def show(self) -> None:
         """Show the settings window."""
@@ -148,12 +391,12 @@ class SettingsWindow(NSObject):
         hotkey_label.setFrame_(AppKit.NSMakeRect(padding, y_pos, label_width, 24))
         content.addSubview_(hotkey_label)
 
-        self._hotkey_field = AppKit.NSTextField.alloc().initWithFrame_(
-            AppKit.NSMakeRect(control_x, y_pos, control_width, 24)
+        self._hotkey_recorder = ShortcutRecorderView.alloc().initWithFrame_onChange_(
+            AppKit.NSMakeRect(control_x, y_pos, control_width, 24),
+            self._on_hotkey_changed,
         )
-        self._hotkey_field.setStringValue_(self._config.get("hotkey", "cmd+shift+space"))
-        self._hotkey_field.setPlaceholderString_("e.g., cmd+shift+space")
-        content.addSubview_(self._hotkey_field)
+        self._hotkey_recorder.set_shortcut(self._config.get("hotkey", "alt+shift"))
+        content.addSubview_(self._hotkey_recorder)
 
         # Microphone setting
         y_pos -= 40
@@ -231,10 +474,21 @@ class SettingsWindow(NSObject):
     def saveSettings_(self, sender) -> None:
         """Save settings and close window."""
         # Get values
-        hotkey = self._hotkey_field.stringValue()
+        hotkey = self._hotkey_recorder.get_shortcut()
         mic_idx = self._mic_popup.indexOfSelectedItem()
         mic_device = self._devices[mic_idx] if mic_idx < len(self._devices) else None
         check_updates = self._update_checkbox.state() == AppKit.NSControlStateValueOn
+
+        # Validate hotkey before saving
+        is_valid, error = HotkeyHandler.validate_hotkey(hotkey)
+        if not is_valid:
+            # Show alert
+            alert = AppKit.NSAlert.alloc().init()
+            alert.setMessageText_("Invalid Hotkey")
+            alert.setInformativeText_(error)
+            alert.setAlertStyle_(AppKit.NSAlertStyleWarning)
+            alert.runModal()
+            return
 
         # Update config
         self._config["hotkey"] = hotkey
@@ -248,15 +502,25 @@ class SettingsWindow(NSObject):
         if self._on_save:
             self._on_save(self._config)
 
+        # Stop any active recording to clean up event monitors
+        if self._hotkey_recorder:
+            self._hotkey_recorder._stop_recording()
+
         # Close window
         self._window.close()
 
     def cancelSettings_(self, sender) -> None:
         """Cancel and close window."""
+        # Stop any active recording to clean up event monitors
+        if self._hotkey_recorder:
+            self._hotkey_recorder._stop_recording()
         self._window.close()
 
     def _handle_close(self) -> None:
         """Handle window close."""
+        # Ensure recording is stopped
+        if self._hotkey_recorder:
+            self._hotkey_recorder._stop_recording()
         self._window = None
         if self._on_close:
             self._on_close()

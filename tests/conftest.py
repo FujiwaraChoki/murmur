@@ -62,26 +62,24 @@ def mock_sounddevice(monkeypatch):
 
 
 @pytest.fixture
-def mock_pynput(monkeypatch):
-    """Mock pynput keyboard module."""
-    mock_keyboard = MagicMock()
-    mock_key = MagicMock()
-    mock_key.cmd = MagicMock()
-    mock_key.ctrl = MagicMock()
-    mock_key.alt = MagicMock()
-    mock_key.shift = MagicMock()
-    mock_key.space = MagicMock()
-    mock_key.enter = MagicMock()
-    mock_key.tab = MagicMock()
-    mock_key.esc = MagicMock()
+def mock_quartz(monkeypatch):
+    """Mock Quartz module for keyboard event simulation."""
+    mock_event = MagicMock()
+    mocks = {
+        "CGEventCreateKeyboardEvent": MagicMock(return_value=mock_event),
+        "CGEventSetFlags": MagicMock(),
+        "CGEventPost": MagicMock(),
+        "CGEventSourceCreate": MagicMock(),
+        "CGEventKeyboardSetUnicodeString": MagicMock(),
+        "kCGHIDEventTap": 0,
+        "kCGEventSourceStateHIDSystemState": 0,
+        "kCGEventFlagMaskCommand": 1 << 20,
+    }
 
-    mock_keyboard.Key = mock_key
-    mock_keyboard.KeyCode = MagicMock()
-    mock_keyboard.KeyCode.from_char = MagicMock(side_effect=lambda c: MagicMock(char=c))
-    mock_keyboard.Listener = MagicMock()
+    for name, mock in mocks.items():
+        monkeypatch.setattr(f"murmur.paste.Quartz.{name}", mock)
 
-    monkeypatch.setattr("murmur.hotkey.keyboard", mock_keyboard)
-    return mock_keyboard
+    return mocks
 
 
 @pytest.fixture
@@ -98,14 +96,6 @@ def mock_pyperclip(monkeypatch):
     monkeypatch.setattr("murmur.paste.pyperclip.copy", mock_copy)
     monkeypatch.setattr("murmur.paste.pyperclip.paste", mock_paste)
     return mock_clipboard
-
-
-@pytest.fixture
-def mock_keyboard_controller(monkeypatch):
-    """Mock pynput keyboard Controller."""
-    mock_ctrl = MagicMock()
-    monkeypatch.setattr("murmur.paste.Controller", lambda: mock_ctrl)
-    return mock_ctrl
 
 
 @pytest.fixture

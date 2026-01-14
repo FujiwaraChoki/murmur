@@ -131,10 +131,10 @@ class TestDefaultConfiguration:
         assert "model" in DEFAULT_CONFIG
 
     def test_default_hotkey_value(self):
-        """Default hotkey is 'cmd+shift+space'."""
+        """Default hotkey is 'alt+shift'."""
         from murmur.settings import DEFAULT_CONFIG
 
-        assert DEFAULT_CONFIG["hotkey"] == "cmd+shift+space"
+        assert DEFAULT_CONFIG["hotkey"] == "alt+shift"
 
     def test_default_microphone_is_none(self):
         """Default microphone_index is None."""

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "murmur"
-version = "0.1.1"
+version = "0.1.2"
 description = "Open-source voice dictation using Nvidia Parakeet"
 readme = "README.md"
 license = "MIT"
@@ -30,7 +30,6 @@ dependencies = [
     "sounddevice>=0.4.6",
     "soundfile>=0.12.0",
     "numpy>=1.24.0",
-    "pynput>=1.7.6",
     "pyobjc-framework-Cocoa>=10.0",
     "pyobjc-framework-Quartz>=10.0",
     "pyperclip>=1.8.2",

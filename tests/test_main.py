@@ -41,7 +41,7 @@ class TestArgumentParsing:
                 assert result == 0
 
     def test_default_hotkey_argument(self):
-        """Default hotkey is cmd+shift+space."""
+        """Default hotkey is alt+shift."""
         from murmur.main import main
 
         with patch("sys.argv", ["murmur", "--version"]):
