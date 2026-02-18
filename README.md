@@ -115,7 +115,8 @@ Settings are stored in `~/.config/murmur/config.json`. You can also access setti
 {
   "hotkey": "cmd+shift+space",
   "model": "mlx-community/parakeet-tdt-0.6b-v2",
-  "device": null
+  "microphone_index": null,
+  "check_updates": true
 }
 ```
 

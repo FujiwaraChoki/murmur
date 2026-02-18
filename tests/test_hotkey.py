@@ -182,6 +182,14 @@ class TestHotkeyValidation:
         is_valid, error = HotkeyHandler.validate_hotkey("alt+shift")
         assert is_valid is True
 
+    def test_validate_multiple_non_modifier_keys(self):
+        """Only one non-modifier key is allowed."""
+        from murmur.hotkey import HotkeyHandler
+
+        is_valid, error = HotkeyHandler.validate_hotkey("cmd+a+b")
+        assert is_valid is False
+        assert "only one non-modifier key" in error.lower()
+
 
 class TestModifierChecking:
     """Tests for modifier flag checking."""
@@ -292,3 +300,6 @@ class TestErrorHandling:
 
         with pytest.raises(ValueError):
             HotkeyHandler(hotkey="space")  # No modifier
+
+        with pytest.raises(ValueError):
+            HotkeyHandler(hotkey="cmd+a+b")  # Multiple non-modifier keys

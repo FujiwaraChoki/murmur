@@ -2,8 +2,36 @@
 
 from __future__ import annotations
 
+import logging
+import os
+
+# Prevent macOS crash when libraries fork() after Cocoa initialization.
+# Must be set before importing any PyObjC modules.
+os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+
 import argparse
 import sys
+
+from murmur.logging_config import setup_logging
+
+logger = logging.getLogger("murmur.main")
+
+
+def _ensure_model_cached(model_name: str) -> None:
+    """Pre-download model files before starting the macOS app.
+
+    Downloading large model files after macOS NSApplication is initialized
+    can crash the process due to fork-safety issues with Cocoa. This
+    function ensures the model is in the HuggingFace cache beforehand.
+    """
+    try:
+        from huggingface_hub import snapshot_download
+
+        logger.debug("Pre-downloading model %s to cache", model_name)
+        snapshot_download(model_name)
+        logger.debug("Model cache download complete")
+    except Exception as e:
+        logger.debug("Model cache pre-download skipped: %s", e)
 
 
 def main() -> int:
@@ -28,6 +56,12 @@ def main() -> int:
         "--list-devices",
         action="store_true",
         help="List available audio input devices and exit",
+    )
+    parser.add_argument(
+        "--device",
+        type=int,
+        default=None,
+        help="Audio input device index (see --list-devices)",
     )
     parser.add_argument(
         "--version",
@@ -59,18 +93,30 @@ def main() -> int:
             print(f"      Channels: {dev['channels']}, Sample Rate: {dev['sample_rate']}")
         return 0
 
+    # Initialize logging before starting the app
+    setup_logging()
+    logger.info("Murmur starting up")
+
+    logger.info("Hotkey: %s | Model: %s", args.hotkey, args.model)
+    if args.device is not None:
+        logger.info("Using microphone device index: %d", args.device)
+
+    # Pre-download model to cache before starting Cocoa app.
+    # huggingface_hub may fork/use multiprocessing during downloads,
+    # which crashes on macOS after NSApplication is initialized.
+    _ensure_model_cached(args.model)
+
     # Run the app with overlay indicator
     from murmur.app import run_app
 
-    print(f"Starting Murmur with hotkey: {args.hotkey}")
-    print(f"Using model: {args.model}")
-    print("Hold the hotkey to record, release to transcribe.")
-    print("Look for the indicator bar at the bottom of your screen.")
-
     try:
-        run_app(model_name=args.model, hotkey=args.hotkey)
+        run_app(
+            model_name=args.model,
+            hotkey=args.hotkey,
+            microphone_index=args.device,
+        )
     except KeyboardInterrupt:
-        print("\nMurmur stopped.")
+        logger.info("Murmur stopped by user")
         return 0
 
     return 0

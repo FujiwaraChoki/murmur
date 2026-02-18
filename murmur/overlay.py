@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from enum import Enum
 
@@ -9,6 +10,8 @@ import AppKit
 import objc
 import Quartz
 from Foundation import NSTimer
+
+logger = logging.getLogger("murmur.overlay")
 
 
 class IndicatorState(Enum):
@@ -21,9 +24,9 @@ class IndicatorState(Enum):
 
 # Colors for different states (r, g, b)
 COLORS = {
-    IndicatorState.IDLE: (0.5, 0.5, 0.5),
-    IndicatorState.RECORDING: (0.95, 0.25, 0.25),
-    IndicatorState.TRANSCRIBING: (0.95, 0.7, 0.15),
+    IndicatorState.IDLE: (0.75, 0.75, 0.78),          # Soft silver
+    IndicatorState.RECORDING: (1.0, 0.28, 0.35),      # Vibrant coral-red
+    IndicatorState.TRANSCRIBING: (0.35, 0.55, 1.0),   # Clean blue
 }
 
 
@@ -95,8 +98,8 @@ class IndicatorView(AppKit.NSView):
         r, g, b = COLORS[self._state]
 
         if self._state == IndicatorState.IDLE:
-            # Simple subtle bar
-            Quartz.CGContextSetRGBFillColor(context, r, g, b, 0.25)
+            # Subtle pill with slight translucency
+            Quartz.CGContextSetRGBFillColor(context, r, g, b, 0.35)
             self._create_rounded_rect_path(context, bounds)
             Quartz.CGContextFillPath(context)
 
@@ -111,13 +114,12 @@ class IndicatorView(AppKit.NSView):
         # Smooth sine wave for breathing effect
         breath = (math.sin(self._animation_phase * math.pi * 2) + 1) / 2  # 0 to 1
 
-        # Outer glow (larger, more transparent)
-        glow_alpha = 0.15 + 0.15 * breath
-        glow_expand = 2 + 2 * breath
+        # Soft outer glow
+        glow_alpha = 0.12 + 0.12 * breath
+        glow_expand = 2 + 1.5 * breath
 
         Quartz.CGContextSaveGState(context)
 
-        # Draw soft outer glow
         glow_bounds = Quartz.CGRectMake(
             -glow_expand,
             -glow_expand / 2,
@@ -156,33 +158,16 @@ class IndicatorView(AppKit.NSView):
         Quartz.CGContextRestoreGState(context)
 
         # Main bar with breathing opacity
-        main_alpha = 0.6 + 0.35 * breath
+        main_alpha = 0.7 + 0.25 * breath
         Quartz.CGContextSetRGBFillColor(context, r, g, b, main_alpha)
         self._create_rounded_rect_path(context, bounds)
         Quartz.CGContextFillPath(context)
-
-        # Inner highlight for depth
-        highlight_alpha = 0.3 * breath
-        Quartz.CGContextSaveGState(context)
-        self._create_rounded_rect_path(context, bounds)
-        Quartz.CGContextClip(context)
-
-        # Top highlight gradient
-        Quartz.CGContextSetRGBFillColor(context, 1.0, 1.0, 1.0, highlight_alpha)
-        Quartz.CGContextFillRect(
-            context,
-            Quartz.CGRectMake(
-                0, bounds.size.height * 0.5, bounds.size.width, bounds.size.height * 0.5
-            ),
-        )
-
-        Quartz.CGContextRestoreGState(context)
 
     def _draw_transcribing_pulse(self, context, bounds, r, g, b):
         """Draw a gentle pulsing animation for transcribing."""
         # Smooth pulse
         pulse = (math.sin(self._animation_phase * math.pi * 2) + 1) / 2
-        alpha = 0.5 + 0.4 * pulse
+        alpha = 0.55 + 0.35 * pulse
 
         Quartz.CGContextSetRGBFillColor(context, r, g, b, alpha)
         self._create_rounded_rect_path(context, bounds)

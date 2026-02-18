@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Callable
 
 import Quartz
 from AppKit import NSEvent
 from Foundation import NSObject
+
+logger = logging.getLogger("murmur.hotkey")
 
 
 class HotkeyHandler:
@@ -117,6 +120,8 @@ class HotkeyHandler:
             if part in self.MODIFIER_MAP:
                 self._target_modifiers |= self.MODIFIER_MAP[part]
             elif part in self.KEYCODE_MAP:
+                if self._target_keycode is not None:
+                    raise ValueError("Hotkey can include only one non-modifier key")
                 self._target_keycode = self.KEYCODE_MAP[part]
             else:
                 raise ValueError(f"Unknown key: '{part}'")
@@ -197,7 +202,7 @@ class HotkeyHandler:
                                         target=self.on_release_end, daemon=True
                                     ).start()
         except Exception:
-            pass  # Silently ignore errors to prevent crashes
+            logger.debug("Error in event callback", exc_info=True)
 
         return event
 
@@ -220,7 +225,7 @@ class HotkeyHandler:
         )
 
         if self._tap is None:
-            print("Failed to create event tap. Check Accessibility permissions.")
+            logger.error("Failed to create event tap. Check Accessibility permissions.")
             return
 
         self._run_loop_source = Quartz.CFMachPortCreateRunLoopSource(
@@ -246,12 +251,14 @@ class HotkeyHandler:
         if self._running:
             return
 
+        logger.debug("Starting hotkey listener for '%s'", self.hotkey_str)
         self._running = True
         self._tap_thread = threading.Thread(target=self._run_tap, daemon=True)
         self._tap_thread.start()
 
     def stop(self) -> None:
         """Stop listening for the hotkey."""
+        logger.debug("Stopping hotkey listener")
         self._running = False
 
         if self._tap:
@@ -294,18 +301,22 @@ class HotkeyHandler:
 
         has_modifier = False
         modifier_count = 0
+        key_count = 0
 
         for part in parts:
             if part in cls.MODIFIER_MAP:
                 has_modifier = True
                 modifier_count += 1
             elif part in cls.KEYCODE_MAP:
-                pass  # Regular key, valid
+                key_count += 1
             else:
                 return False, f"Unknown key: '{part}'"
 
         if not has_modifier:
             return False, "Hotkey must include at least one modifier (cmd, ctrl, alt, shift)"
+
+        if key_count > 1:
+            return False, "Hotkey can include only one non-modifier key"
 
         # Modifier-only hotkeys need at least 2 modifiers to avoid accidental triggers
         if modifier_count == len(parts) and modifier_count < 2:

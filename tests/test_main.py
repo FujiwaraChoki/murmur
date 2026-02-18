@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import sys
-from io import StringIO
 from unittest.mock import MagicMock, Mock, patch
-
-import pytest
 
 
 class TestArgumentParsing:
@@ -17,14 +13,12 @@ class TestArgumentParsing:
         from murmur.main import main
 
         with patch("sys.argv", ["murmur", "--version"]):
-            with patch("murmur.main.print") as mock_print:
+            with patch("murmur.main.print"):
                 main()
         # The default model is used when not specified
 
     def test_custom_model_argument(self):
         """--model sets custom model."""
-        import argparse
-
         from murmur.main import main
 
         with patch("sys.argv", ["murmur", "--model", "custom-model", "--version"]):
@@ -91,7 +85,7 @@ class TestArgumentParsing:
         from murmur.main import main
 
         with patch("sys.argv", ["murmur", "-v"]):
-            with patch("murmur.main.print") as mock_print:
+            with patch("murmur.main.print"):
                 result = main()
                 assert result == 0
 
@@ -184,17 +178,41 @@ class TestCommandExecution:
 
     def test_main_starts_app(self):
         """Normal invocation calls run_app."""
-        from murmur.main import main
-
         mock_run_app = Mock()
+        mock_module = MagicMock(run_app=mock_run_app)
 
         with patch("sys.argv", ["murmur"]):
             with patch("murmur.main.print"):
-                with patch("murmur.app.run_app", mock_run_app):
-                    with patch.dict("sys.modules", {"murmur.app": MagicMock(run_app=mock_run_app)}):
-                        # Import and patch at the point of use
-                        with patch("murmur.main.run_app", mock_run_app, create=True):
-                            pass  # Would need to restructure to test properly
+                with patch.dict("sys.modules", {"murmur.app": mock_module}):
+                    from murmur.main import main
+
+                    result = main()
+
+        assert result == 0
+        mock_run_app.assert_called_once_with(
+            model_name="mlx-community/parakeet-tdt-0.6b-v2",
+            hotkey="alt+shift",
+            microphone_index=None,
+        )
+
+    def test_device_argument_passed_to_run_app(self):
+        """--device is forwarded to run_app."""
+        mock_run_app = Mock()
+        mock_module = MagicMock(run_app=mock_run_app)
+
+        with patch("sys.argv", ["murmur", "--device", "2"]):
+            with patch("murmur.main.print"):
+                with patch.dict("sys.modules", {"murmur.app": mock_module}):
+                    from murmur.main import main
+
+                    result = main()
+
+        assert result == 0
+        mock_run_app.assert_called_once_with(
+            model_name="mlx-community/parakeet-tdt-0.6b-v2",
+            hotkey="alt+shift",
+            microphone_index=2,
+        )
 
     def test_keyboard_interrupt_handled(self):
         """Ctrl+C exits gracefully."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.request
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -55,13 +56,21 @@ class UpdateChecker:
         Returns:
             Tuple of version components.
         """
-        # Strip 'v' prefix if present
-        clean = version_str.lstrip("v")
-        # Split and convert to integers
-        try:
-            return tuple(int(x) for x in clean.split("."))
-        except ValueError:
-            return (0, 0, 0)
+        clean = version_str.strip().lstrip("vV")
+        if not clean:
+            return (0,)
+
+        # Ignore prerelease/build metadata (e.g. 1.2.3-beta.1, 1.2.3+build5).
+        clean = clean.split("-", 1)[0].split("+", 1)[0]
+
+        parts: list[int] = []
+        for segment in clean.split("."):
+            match = re.match(r"(\d+)", segment)
+            if not match:
+                break
+            parts.append(int(match.group(1)))
+
+        return tuple(parts) if parts else (0,)
 
     def _is_newer(self, current: str, latest: str) -> bool:
         """Compare two version strings.
@@ -75,7 +84,10 @@ class UpdateChecker:
         """
         current_parts = self._parse_version(current)
         latest_parts = self._parse_version(latest)
-        return latest_parts > current_parts
+        width = max(len(current_parts), len(latest_parts))
+        current_norm = current_parts + (0,) * (width - len(current_parts))
+        latest_norm = latest_parts + (0,) * (width - len(latest_parts))
+        return latest_norm > current_norm
 
     def check_for_update(self) -> UpdateResult | None:
         """Check GitHub releases for a newer version.

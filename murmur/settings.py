@@ -313,7 +313,7 @@ class SettingsWindow(NSObject):
     def initWithConfig_onSave_onClose_(
         self,
         current_config: dict,
-        on_save: Callable[[dict], None] | None,
+        on_save: Callable[[dict], bool | None] | None,
         on_close: Callable[[], None] | None,
     ):
         """Initialize the settings window.
@@ -490,17 +490,46 @@ class SettingsWindow(NSObject):
             alert.runModal()
             return
 
-        # Update config
-        self._config["hotkey"] = hotkey
-        self._config["microphone_index"] = mic_device
-        self._config["check_updates"] = check_updates
-
-        # Save to file
-        save_config(self._config)
+        # Build candidate config and apply runtime changes first.
+        new_config = self._config.copy()
+        new_config["hotkey"] = hotkey
+        new_config["microphone_index"] = mic_device
+        new_config["check_updates"] = check_updates
 
         # Notify callback
         if self._on_save:
-            self._on_save(self._config)
+            try:
+                apply_result = self._on_save(new_config)
+            except Exception as e:
+                alert = AppKit.NSAlert.alloc().init()
+                alert.setMessageText_("Failed to Apply Settings")
+                alert.setInformativeText_(str(e))
+                alert.setAlertStyle_(AppKit.NSAlertStyleWarning)
+                alert.runModal()
+                return
+
+            if apply_result is False:
+                alert = AppKit.NSAlert.alloc().init()
+                alert.setMessageText_("Failed to Apply Settings")
+                alert.setInformativeText_(
+                    "Could not apply one or more settings. Your previous settings are unchanged."
+                )
+                alert.setAlertStyle_(AppKit.NSAlertStyleWarning)
+                alert.runModal()
+                return
+
+        # Persist only after runtime apply succeeds.
+        try:
+            save_config(new_config)
+        except Exception as e:
+            alert = AppKit.NSAlert.alloc().init()
+            alert.setMessageText_("Failed to Save Settings")
+            alert.setInformativeText_(str(e))
+            alert.setAlertStyle_(AppKit.NSAlertStyleWarning)
+            alert.runModal()
+            return
+
+        self._config = new_config
 
         # Stop any active recording to clean up event monitors
         if self._hotkey_recorder:

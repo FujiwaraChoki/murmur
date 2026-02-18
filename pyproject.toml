@@ -46,6 +46,9 @@ dev = [
 [project.scripts]
 murmur = "murmur.main:main"
 
+[tool.uv]
+constraint-dependencies = ["numba>=0.60"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["murmur"]
 
