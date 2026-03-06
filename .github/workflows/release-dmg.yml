@@ -12,15 +12,20 @@ permissions:
 jobs:
   release-dmg:
     runs-on: macos-14
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Verify selected Xcode
-        run: xcodebuild -version
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
 
       - name: Compute release metadata
         id: meta
@@ -44,11 +49,11 @@ jobs:
             echo "notes_file=$notes_file"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build DMG
+      - name: Build Python DMG
         id: build
         env:
           MURMUR_RELEASE_SUFFIX: main-${{ steps.meta.outputs.short_sha }}
-        run: ./scripts/build-macos-dmg.sh
+        run: ./scripts/package.sh
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4

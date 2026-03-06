@@ -15,6 +15,7 @@ set -euo pipefail
 APP_NAME="Murmur"
 BUNDLE_ID="com.murmur.app"
 VERSION=$(grep -m1 'version = ' pyproject.toml | cut -d'"' -f2)
+RELEASE_SUFFIX="${MURMUR_RELEASE_SUFFIX:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
@@ -255,7 +256,12 @@ log_info "Created $APP_PATH"
 if [[ "$SKIP_DMG" == true ]]; then
     log_info "Skipping DMG creation (--skip-dmg)"
 else
-    DMG_PATH="$DIST_DIR/${APP_NAME}-${VERSION}.dmg"
+    DMG_BASENAME="${APP_NAME}-${VERSION}"
+    if [[ -n "$RELEASE_SUFFIX" ]]; then
+        DMG_BASENAME="${DMG_BASENAME}-${RELEASE_SUFFIX}"
+    fi
+
+    DMG_PATH="$DIST_DIR/${DMG_BASENAME}.dmg"
 
     # Remove old DMG if exists
     rm -f "$DMG_PATH"
@@ -319,3 +325,14 @@ echo "Note: On first run, you may need to grant permissions:"
 echo "  - Microphone access (System Settings > Privacy & Security > Microphone)"
 echo "  - Accessibility (System Settings > Privacy & Security > Accessibility)"
 echo "  - Input Monitoring (System Settings > Privacy & Security > Input Monitoring)"
+
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    {
+        printf 'app_path=%s\n' "$APP_PATH"
+        printf 'version=%s\n' "$VERSION"
+        if [[ "$SKIP_DMG" != true ]] && [[ -f "${DMG_PATH:-}" ]]; then
+            printf 'dmg_path=%s\n' "$DMG_PATH"
+            printf 'dmg_name=%s\n' "$(basename "$DMG_PATH")"
+        fi
+    } >>"$GITHUB_OUTPUT"
+fi
