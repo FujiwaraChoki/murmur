@@ -12,10 +12,15 @@ permissions:
 jobs:
   release-dmg:
     runs-on: macos-14
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Verify selected Xcode
+        run: xcodebuild -version
 
       - name: Compute release metadata
         id: meta
