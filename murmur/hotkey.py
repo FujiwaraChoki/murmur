@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import subprocess
 import threading
 from typing import Callable
 
 import Quartz
-from AppKit import NSEvent
-from Foundation import NSObject
 
 
 class HotkeyHandler:
@@ -67,6 +66,8 @@ class HotkeyHandler:
         "0": 29, "1": 18, "2": 19, "3": 20, "4": 21,
         "5": 23, "6": 22, "7": 26, "8": 28, "9": 25,
     }
+    TERMINAL_CONTROL_KEYS = {"c", "d", "q", "s", "z"}
+    INPUT_MONITORING_URL = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
 
     def __init__(
         self,
@@ -93,6 +94,7 @@ class HotkeyHandler:
         self._tap = None
         self._run_loop_source = None
         self._tap_thread: threading.Thread | None = None
+        self._startup_event = threading.Event()
         self._running = False
 
         self._parse_hotkey()
@@ -213,14 +215,16 @@ class HotkeyHandler:
         self._tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,
             Quartz.kCGHeadInsertEventTap,
-            Quartz.kCGEventTapOptionDefault,
+            Quartz.kCGEventTapOptionListenOnly,
             event_mask,
             self._event_callback,
             None,
         )
 
         if self._tap is None:
-            print("Failed to create event tap. Check Accessibility permissions.")
+            self._running = False
+            self._startup_event.set()
+            print("Failed to create event tap. Grant Input Monitoring permission and restart Murmur.")
             return
 
         self._run_loop_source = Quartz.CFMachPortCreateRunLoopSource(
@@ -234,6 +238,7 @@ class HotkeyHandler:
         )
 
         Quartz.CGEventTapEnable(self._tap, True)
+        self._startup_event.set()
 
         # Run until stopped
         while self._running:
@@ -241,14 +246,21 @@ class HotkeyHandler:
                 Quartz.kCFRunLoopDefaultMode, 0.1, False
             )
 
-    def start(self) -> None:
+    def start(self) -> bool:
         """Start listening for the hotkey."""
         if self._running:
-            return
+            return self._tap is not None
 
+        if not self.has_input_monitoring_permission():
+            print("Global hotkey unavailable: Input Monitoring permission has not been granted.")
+            return False
+
+        self._startup_event.clear()
         self._running = True
         self._tap_thread = threading.Thread(target=self._run_tap, daemon=True)
         self._tap_thread.start()
+        self._startup_event.wait(timeout=1.0)
+        return self._tap is not None
 
     def stop(self) -> None:
         """Stop listening for the hotkey."""
@@ -294,13 +306,17 @@ class HotkeyHandler:
 
         has_modifier = False
         modifier_count = 0
+        modifiers: set[str] = set()
+        keys: list[str] = []
 
         for part in parts:
             if part in cls.MODIFIER_MAP:
                 has_modifier = True
                 modifier_count += 1
+                canonical = "ctrl" if part == "control" else "alt" if part == "option" else part
+                modifiers.add(canonical)
             elif part in cls.KEYCODE_MAP:
-                pass  # Regular key, valid
+                keys.append(part)
             else:
                 return False, f"Unknown key: '{part}'"
 
@@ -311,7 +327,37 @@ class HotkeyHandler:
         if modifier_count == len(parts) and modifier_count < 2:
             return False, "Modifier-only hotkey needs at least 2 modifiers"
 
+        # Terminal-launched apps are easy to suspend or interrupt with common Ctrl shortcuts.
+        if modifiers == {"ctrl"} and len(keys) == 1 and keys[0] in cls.TERMINAL_CONTROL_KEYS:
+            return (
+                False,
+                f"'{hotkey}' conflicts with common terminal shortcuts. Choose a different hotkey.",
+            )
+
         return True, ""
+
+    @classmethod
+    def has_input_monitoring_permission(cls) -> bool:
+        """Return whether the process has input monitoring access."""
+        preflight = getattr(Quartz, "CGPreflightListenEventAccess", None)
+        if preflight is None:
+            return True
+        return bool(preflight())
+
+    @classmethod
+    def request_input_monitoring_permission(cls) -> None:
+        """Ask macOS to grant input monitoring access and open the settings pane."""
+        request = getattr(Quartz, "CGRequestListenEventAccess", None)
+        if request is not None:
+            try:
+                request()
+            except Exception:
+                pass
+
+        try:
+            subprocess.run(["open", cls.INPUT_MONITORING_URL], check=False)
+        except Exception:
+            pass
 
     @property
     def is_held(self) -> bool:

@@ -13,6 +13,7 @@ from Foundation import NSObject
 
 from murmur.audio import list_audio_devices
 from murmur.hotkey import HotkeyHandler
+from murmur.snippets import normalize_snippets
 
 # Config file location
 CONFIG_DIR = Path.home() / ".config" / "murmur"
@@ -24,6 +25,7 @@ DEFAULT_CONFIG = {
     "microphone_index": None,  # None means default device
     "model": "mlx-community/parakeet-tdt-0.6b-v2",
     "check_updates": True,  # Check for updates on startup
+    "snippets": [],
 }
 
 # Modifier key mappings for display
@@ -63,6 +65,13 @@ SPECIAL_KEYCODES = {
     103: "f11",
     111: "f12",
 }
+
+
+def _copy_config(config: dict | None = None) -> dict:
+    """Create a config copy with normalized snippet data."""
+    merged = {**DEFAULT_CONFIG, **(config or {})}
+    merged["snippets"] = normalize_snippets(merged.get("snippets"))
+    return merged
 
 
 class ShortcutRecorderView(AppKit.NSView):
@@ -273,11 +282,18 @@ def load_config() -> dict:
         try:
             with open(CONFIG_FILE) as f:
                 config = json.load(f)
-                # Merge with defaults to ensure all keys exist
-                return {**DEFAULT_CONFIG, **config}
+                merged = _copy_config(config)
+                config_changed = merged.get("snippets") != config.get("snippets", [])
+                is_valid, _ = HotkeyHandler.validate_hotkey(merged["hotkey"])
+                if not is_valid:
+                    merged["hotkey"] = DEFAULT_CONFIG["hotkey"]
+                    config_changed = True
+                if config_changed:
+                    save_config(merged)
+                return merged
         except Exception:
             pass
-    return DEFAULT_CONFIG.copy()
+    return _copy_config()
 
 
 def save_config(config: dict) -> None:
@@ -286,6 +302,7 @@ def save_config(config: dict) -> None:
     Args:
         config: Configuration dictionary to save.
     """
+    config = _copy_config(config)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
@@ -326,13 +343,17 @@ class SettingsWindow(NSObject):
         self = objc.super(SettingsWindow, self).init()
         if self is None:
             return None
-        self._config = current_config.copy()
+        self._config = _copy_config(current_config)
         self._on_save = on_save
         self._on_close = on_close
         self._window = None
         self._hotkey_recorder = None
         self._mic_popup = None
         self._update_checkbox = None
+        self._snippet_scroll = None
+        self._snippet_document = None
+        self._snippet_rows = []
+        self._snippet_empty_label = None
         self._devices = []
         return self
 
@@ -341,6 +362,116 @@ class SettingsWindow(NSObject):
         """Handle hotkey change from recorder."""
         pass  # The recorder validates internally; shortcut is stored in the recorder
 
+    @objc.python_method
+    def _create_snippet_row(self, trigger: str = "", replacement: str = "") -> dict:
+        """Create a snippet editor row."""
+        row_view = AppKit.NSView.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, 1, 52))
+
+        trigger_field = AppKit.NSTextField.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, 1, 30))
+        trigger_field.setPlaceholderString_("Spoken phrase")
+        trigger_field.setStringValue_(trigger)
+        row_view.addSubview_(trigger_field)
+
+        replacement_field = AppKit.NSTextField.alloc().initWithFrame_(
+            AppKit.NSMakeRect(0, 0, 1, 30)
+        )
+        replacement_field.setPlaceholderString_("Insert this text")
+        replacement_field.setStringValue_(replacement)
+        row_view.addSubview_(replacement_field)
+
+        remove_button = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, 72, 30))
+        remove_button.setTitle_("Remove")
+        remove_button.setBezelStyle_(AppKit.NSBezelStyleRounded)
+        remove_button.setTarget_(self)
+        remove_button.setAction_(objc.selector(self.removeSnippetRow_, signature=b"v@:@"))
+        row_view.addSubview_(remove_button)
+
+        return {
+            "view": row_view,
+            "trigger_field": trigger_field,
+            "replacement_field": replacement_field,
+            "remove_button": remove_button,
+        }
+
+    @objc.python_method
+    def _layout_snippet_rows(self) -> None:
+        """Lay out snippet rows within the scroll view."""
+        if self._snippet_document is None:
+            return
+
+        row_height = 52
+        row_spacing = 10
+        content_width = self._snippet_scroll.contentSize().width
+        row_width = max(content_width - 12, 320)
+        trigger_width = max(120, int(row_width * 0.32))
+        remove_width = 72
+        gutter = 10
+        replacement_width = max(120, row_width - trigger_width - remove_width - gutter * 2)
+
+        total_height = max(
+            120,
+            len(self._snippet_rows) * row_height
+            + max(0, len(self._snippet_rows) - 1) * row_spacing,
+        )
+        self._snippet_document.setFrame_(AppKit.NSMakeRect(0, 0, content_width, total_height))
+
+        for index, row in enumerate(self._snippet_rows):
+            y_pos = total_height - row_height - index * (row_height + row_spacing)
+            row["view"].setFrame_(AppKit.NSMakeRect(6, y_pos, row_width, row_height))
+            row["trigger_field"].setFrame_(AppKit.NSMakeRect(0, 20, trigger_width, 30))
+            row["replacement_field"].setFrame_(
+                AppKit.NSMakeRect(trigger_width + gutter, 20, replacement_width, 30)
+            )
+            row["remove_button"].setFrame_(
+                AppKit.NSMakeRect(
+                    trigger_width + gutter + replacement_width + gutter,
+                    20,
+                    remove_width,
+                    30,
+                )
+            )
+            row["remove_button"].setTag_(index)
+
+        if self._snippet_empty_label is not None:
+            self._snippet_empty_label.setHidden_(bool(self._snippet_rows))
+            self._snippet_empty_label.setFrame_(AppKit.NSMakeRect(8, 42, row_width - 16, 32))
+
+    @objc.python_method
+    def _add_snippet_row(self, trigger: str = "", replacement: str = "") -> None:
+        """Append a snippet row to the editor."""
+        if self._snippet_document is None:
+            return
+
+        row = self._create_snippet_row(trigger=trigger, replacement=replacement)
+        self._snippet_rows.append(row)
+        self._snippet_document.addSubview_(row["view"])
+        self._layout_snippet_rows()
+
+    @objc.python_method
+    def _collect_snippets(self) -> list[dict[str, str]]:
+        """Collect snippet rows into normalized config data."""
+        raw_snippets = []
+        for row in self._snippet_rows:
+            raw_snippets.append(
+                {
+                    "trigger": row["trigger_field"].stringValue(),
+                    "replacement": row["replacement_field"].stringValue(),
+                }
+            )
+        return normalize_snippets(raw_snippets)
+
+    def addSnippetRow_(self, sender) -> None:
+        """Add a new blank snippet row."""
+        self._add_snippet_row()
+
+    def removeSnippetRow_(self, sender) -> None:
+        """Remove an existing snippet row."""
+        index = sender.tag()
+        if 0 <= index < len(self._snippet_rows):
+            row = self._snippet_rows.pop(index)
+            row["view"].removeFromSuperview()
+            self._layout_snippet_rows()
+
     def show(self) -> None:
         """Show the settings window."""
         if self._window is not None:
@@ -348,8 +479,8 @@ class SettingsWindow(NSObject):
             return
 
         # Window dimensions
-        width = 400
-        height = 240
+        width = 620
+        height = 470
 
         # Get screen center
         screen = AppKit.NSScreen.mainScreen()
@@ -386,7 +517,7 @@ class SettingsWindow(NSObject):
         control_width = width - control_x - padding
 
         # Hotkey setting
-        y_pos = height - 50
+        y_pos = height - 58
         hotkey_label = AppKit.NSTextField.labelWithString_("Hotkey:")
         hotkey_label.setFrame_(AppKit.NSMakeRect(padding, y_pos, label_width, 24))
         content.addSubview_(hotkey_label)
@@ -423,6 +554,67 @@ class SettingsWindow(NSObject):
             else AppKit.NSControlStateValueOff
         )
         content.addSubview_(self._update_checkbox)
+
+        # Snippets section
+        y_pos -= 48
+        snippets_label = AppKit.NSTextField.labelWithString_("Snippets:")
+        snippets_label.setFrame_(AppKit.NSMakeRect(padding, y_pos, label_width, 24))
+        content.addSubview_(snippets_label)
+
+        snippet_help = AppKit.NSTextField.labelWithString_(
+            "Replace spoken words or phrases with saved text before Murmur pastes it."
+        )
+        snippet_help.setFrame_(AppKit.NSMakeRect(control_x, y_pos, control_width - 110, 24))
+        snippet_help.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        content.addSubview_(snippet_help)
+
+        add_button = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(width - padding - 94, y_pos - 2, 94, 28)
+        )
+        add_button.setTitle_("Add Snippet")
+        add_button.setBezelStyle_(AppKit.NSBezelStyleRounded)
+        add_button.setTarget_(self)
+        add_button.setAction_(objc.selector(self.addSnippetRow_, signature=b"v@:@"))
+        content.addSubview_(add_button)
+
+        y_pos -= 28
+        trigger_header = AppKit.NSTextField.labelWithString_("Trigger")
+        trigger_header.setFrame_(AppKit.NSMakeRect(control_x, y_pos, 120, 18))
+        trigger_header.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        content.addSubview_(trigger_header)
+
+        replacement_header = AppKit.NSTextField.labelWithString_("Replacement")
+        replacement_header.setFrame_(AppKit.NSMakeRect(control_x + 175, y_pos, 160, 18))
+        replacement_header.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        content.addSubview_(replacement_header)
+
+        scroll_height = 170
+        y_pos -= scroll_height + 8
+        self._snippet_scroll = AppKit.NSScrollView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(control_x, y_pos, control_width, scroll_height)
+        )
+        self._snippet_scroll.setHasVerticalScroller_(True)
+        self._snippet_scroll.setBorderType_(AppKit.NSBezelBorder)
+        self._snippet_scroll.setAutohidesScrollers_(True)
+
+        self._snippet_document = AppKit.NSView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(0, 0, control_width, scroll_height)
+        )
+        self._snippet_scroll.setDocumentView_(self._snippet_document)
+        content.addSubview_(self._snippet_scroll)
+
+        self._snippet_empty_label = AppKit.NSTextField.labelWithString_(
+            "No snippets yet. Add one to expand a spoken phrase into reusable text."
+        )
+        self._snippet_empty_label.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        self._snippet_document.addSubview_(self._snippet_empty_label)
+
+        for snippet in self._config.get("snippets", []):
+            self._add_snippet_row(
+                trigger=snippet.get("trigger", ""),
+                replacement=snippet.get("replacement", ""),
+            )
+        self._layout_snippet_rows()
 
         # Save button
         y_pos = padding
@@ -494,6 +686,7 @@ class SettingsWindow(NSObject):
         self._config["hotkey"] = hotkey
         self._config["microphone_index"] = mic_device
         self._config["check_updates"] = check_updates
+        self._config["snippets"] = self._collect_snippets()
 
         # Save to file
         save_config(self._config)

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import platform
-import threading
 import time
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
-
 
 # Mark all tests in this module as integration tests
 pytestmark = pytest.mark.integration
@@ -66,6 +63,7 @@ class TestEndToEndWorkflow:
             "hotkey": "ctrl+alt+r",
             "microphone_index": 2,
             "model": "custom-model",
+            "snippets": [{"trigger": "addr", "replacement": "123 Main St"}],
         }
         save_config(new_config)
 
@@ -75,6 +73,7 @@ class TestEndToEndWorkflow:
         assert loaded_config["hotkey"] == "ctrl+alt+r"
         assert loaded_config["microphone_index"] == 2
         assert loaded_config["model"] == "custom-model"
+        assert loaded_config["snippets"] == [{"trigger": "addr", "replacement": "123 Main St"}]
 
     def test_hotkey_change_takes_effect(self):
         """Changing hotkey in settings updates handler."""

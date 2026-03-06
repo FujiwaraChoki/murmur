@@ -10,10 +10,11 @@ Open-source voice dictation for macOS using Nvidia's Parakeet ASR model, optimiz
 ## Features
 
 - **Real-time transcription** - Fast, accurate speech-to-text using Parakeet-MLX
-- **Global hotkey** - Start/stop recording from anywhere (default: Cmd+Shift+Space)
+- **Global hotkey** - Start/stop recording from anywhere (default: `alt+shift`)
 - **Menu bar app** - Unobtrusive status indicator lives in your menu bar
 - **Visual feedback** - Floating overlay bar shows recording/transcribing state
 - **Auto-paste** - Transcribed text is automatically pasted into the active application
+- **Custom snippets** - Expand spoken words or phrases into reusable text from settings
 - **Configurable** - Customize hotkey, model, and audio device via settings or CLI
 
 ## Requirements
@@ -27,7 +28,25 @@ Open-source voice dictation for macOS using Nvidia's Parakeet ASR model, optimiz
 
 Download the latest `.dmg` from [GitHub Releases](https://github.com/FujiwaraChoki/murmur/releases), open it, and drag Murmur to Applications.
 
-### From Source
+### From Source with `uv` (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/FujiwaraChoki/murmur.git
+cd murmur
+
+# Sync the project environment
+uv sync
+
+# Launch from the repo root
+uv run main.py
+```
+
+`uv` support is configured in-project. Murmur excludes the broken
+`numba` / `llvmlite` transitive pair from `parakeet-mlx` and ships a tiny
+compatibility shim so modern Python versions can still launch cleanly.
+
+### From Source with `pip`
 
 ```bash
 # Clone the repository
@@ -40,25 +59,37 @@ source .venv/bin/activate
 
 # Install in editable mode
 pip install -e .
+
+# Launch
+python -m murmur.main
 ```
 
 ## Usage
 
 ```bash
-# Start Murmur with default settings
-murmur
+# Start Murmur from the repo root with uv
+uv run main.py
 
-# Use a custom hotkey
-murmur --hotkey "cmd+shift+r"
+# Start Murmur as a module instead
+uv run python -m murmur.main
 
-# Use a different model
-murmur --model "mlx-community/parakeet-tdt-0.6b-v3"
+# Start Murmur from an activated venv
+python -m murmur.main
+
+# Start the installed CLI
+.venv/bin/murmur
+
+# Override the saved hotkey for this launch
+uv run main.py --hotkey "cmd+shift+r"
+
+# Override the saved model for this launch
+uv run main.py --model "mlx-community/parakeet-tdt-0.6b-v3"
 
 # List available audio input devices
-murmur --list-devices
+uv run main.py --list-devices
 
-# Use a specific audio device
-murmur --device 1
+# Override the saved audio device for this launch
+uv run main.py --device 1
 ```
 
 ### Hotkey Format
@@ -82,7 +113,7 @@ Murmur requires the following permissions to function. You'll be prompted to gra
 
 ## How It Works
 
-1. **Press the hotkey** (Cmd+Shift+Space by default) to start recording
+1. **Press the hotkey** (`alt+shift` by default) to start recording
 2. **Speak naturally** - audio is captured in real-time
 3. **Release the hotkey** to stop recording
 4. **Murmur transcribes** your speech using Parakeet-MLX
@@ -113,9 +144,15 @@ Settings are stored in `~/.config/murmur/config.json`. You can also access setti
 
 ```json
 {
-  "hotkey": "cmd+shift+space",
+  "hotkey": "alt+shift",
   "model": "mlx-community/parakeet-tdt-0.6b-v2",
-  "device": null
+  "microphone_index": null,
+  "snippets": [
+    {
+      "trigger": "my signature",
+      "replacement": "Best regards,\\nChoki"
+    }
+  ]
 }
 ```
 
@@ -125,16 +162,18 @@ Settings are stored in `~/.config/murmur/config.json`. You can also access setti
 - Ensure the app is added to **Input Monitoring** in System Settings
 - Try running from Terminal to see any permission prompts
 - Check if another app is using the same hotkey
+- Avoid terminal control shortcuts such as `ctrl+z` or `ctrl+c` as Murmur hotkeys
 
 ### No audio / microphone not detected
 - Grant **Microphone** permission in System Settings
-- Run `murmur --list-devices` to see available devices
+- Run `uv run main.py --list-devices` to see available devices
 - Try specifying a device with `--device`
 
 ### Slow transcription
 - First run downloads the model (~500MB) which takes time
 - Subsequent runs use cached model for faster startup
 - Apple Silicon provides best performance; Intel Macs will be slower
+- Unauthenticated Hugging Face downloads may be rate-limited; set `HF_TOKEN` if needed
 
 ### Permission denied errors
 - Restart the app after granting permissions
@@ -152,21 +191,20 @@ Settings are stored in `~/.config/murmur/config.json`. You can also access setti
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ```bash
-# Install dev dependencies
-pip install -e ".[dev]"
+# Install/update the project environment
+uv sync --all-extras
 
 # Run linter
-ruff check murmur/
+uv run ruff check murmur/
 
 # Run tests
-pytest
+uv run pytest
 ```
 
 ## Acknowledgments
 
 - [Parakeet-MLX](https://github.com/ml-explore/mlx-examples) - The ASR model powering transcription
 - [MLX](https://github.com/ml-explore/mlx) - Apple's machine learning framework
-- [pynput](https://github.com/moses-palmer/pynput) - Global hotkey detection
 - [sounddevice](https://github.com/spatialaudio/python-sounddevice) - Audio capture
 
 ## License

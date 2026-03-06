@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 
 class TestConfigurationIO:
@@ -43,6 +39,7 @@ class TestConfigurationIO:
         # Should have default values for missing keys
         assert config["microphone_index"] == DEFAULT_CONFIG["microphone_index"]
         assert config["model"] == DEFAULT_CONFIG["model"]
+        assert config["snippets"] == DEFAULT_CONFIG["snippets"]
 
     def test_load_config_handles_invalid_json(self, mock_config_path):
         """Returns defaults on parse error."""
@@ -52,6 +49,43 @@ class TestConfigurationIO:
 
         config = load_config()
         assert config == DEFAULT_CONFIG
+
+    def test_load_config_resets_unsafe_hotkey(self, mock_config_path):
+        """Unsafe saved hotkeys are reset to the default value."""
+        from murmur.settings import CONFIG_FILE, DEFAULT_CONFIG, load_config
+
+        CONFIG_FILE.write_text(json.dumps({"hotkey": "ctrl+z"}))
+
+        config = load_config()
+
+        assert config["hotkey"] == DEFAULT_CONFIG["hotkey"]
+        saved = json.loads(CONFIG_FILE.read_text())
+        assert saved["hotkey"] == DEFAULT_CONFIG["hotkey"]
+
+    def test_load_config_normalizes_snippets(self, mock_config_path):
+        """Invalid snippet rows are cleaned up on load."""
+        from murmur.settings import CONFIG_FILE, load_config
+
+        CONFIG_FILE.write_text(
+            json.dumps(
+                {
+                    "snippets": [
+                        {"trigger": "  ", "replacement": "skip"},
+                        {"trigger": "brb", "replacement": "be right back"},
+                        {"trigger": 123, "replacement": 456},
+                    ]
+                }
+            )
+        )
+
+        config = load_config()
+
+        assert config["snippets"] == [
+            {"trigger": "brb", "replacement": "be right back"},
+            {"trigger": "123", "replacement": "456"},
+        ]
+        saved = json.loads(CONFIG_FILE.read_text())
+        assert saved["snippets"] == config["snippets"]
 
     def test_save_config_creates_directory(self, tmp_path, monkeypatch):
         """Creates ~/.config/murmur if needed."""
@@ -100,6 +134,7 @@ class TestConfigurationIO:
             "hotkey": "ctrl+shift+r",
             "microphone_index": 3,
             "model": "custom-model",
+            "snippets": [{"trigger": "omw", "replacement": "on my way"}],
         }
         save_config(test_config)
 
@@ -107,6 +142,7 @@ class TestConfigurationIO:
         assert loaded["hotkey"] == test_config["hotkey"]
         assert loaded["microphone_index"] == test_config["microphone_index"]
         assert loaded["model"] == test_config["model"]
+        assert loaded["snippets"] == test_config["snippets"]
 
 
 class TestDefaultConfiguration:
@@ -130,6 +166,12 @@ class TestDefaultConfiguration:
 
         assert "model" in DEFAULT_CONFIG
 
+    def test_default_config_has_snippets(self):
+        """DEFAULT_CONFIG contains snippets."""
+        from murmur.settings import DEFAULT_CONFIG
+
+        assert "snippets" in DEFAULT_CONFIG
+
     def test_default_hotkey_value(self):
         """Default hotkey is 'alt+shift'."""
         from murmur.settings import DEFAULT_CONFIG
@@ -141,3 +183,9 @@ class TestDefaultConfiguration:
         from murmur.settings import DEFAULT_CONFIG
 
         assert DEFAULT_CONFIG["microphone_index"] is None
+
+    def test_default_snippets_are_empty(self):
+        """Snippets default to an empty list."""
+        from murmur.settings import DEFAULT_CONFIG
+
+        assert DEFAULT_CONFIG["snippets"] == []

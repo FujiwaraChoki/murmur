@@ -46,8 +46,15 @@ dev = [
 [project.scripts]
 murmur = "murmur.main:main"
 
+[tool.uv]
+# parakeet-mlx pulls in librosa, which declares numba/llvmlite as hard
+# dependencies even though Murmur's code path does not use them. Excluding the
+# pair keeps `uv sync` working on modern Python versions where llvmlite 0.36
+# cannot build.
+exclude-dependencies = ["numba", "llvmlite"]
+
 [tool.hatch.build.targets.wheel]
-packages = ["murmur"]
+packages = ["murmur", "numba"]
 
 [tool.pytest.ini_options]
 markers = [

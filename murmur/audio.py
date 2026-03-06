@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 
 import numpy as np
 import sounddevice as sd
@@ -11,6 +12,8 @@ from numpy.typing import NDArray
 
 class AudioRecorder:
     """Records audio from the microphone."""
+
+    waveform_bins = 29
 
     def __init__(self, sample_rate: int = 16000, channels: int = 1):
         """Initialize the audio recorder.
@@ -21,10 +24,12 @@ class AudioRecorder:
         """
         self.sample_rate = sample_rate
         self.channels = channels
+        self.on_waveform_update: Callable[[list[float]], None] | None = None
         self._buffer: list[NDArray[np.float32]] = []
         self._stream: sd.InputStream | None = None
         self._lock = threading.Lock()
         self._recording = False
+        self._waveform_levels = np.full(self.waveform_bins, 0.06, dtype=np.float32)
 
     def _audio_callback(
         self,
@@ -39,6 +44,8 @@ class AudioRecorder:
         with self._lock:
             if self._recording:
                 self._buffer.append(indata.copy())
+        if self._recording and self.on_waveform_update is not None:
+            self.on_waveform_update(self._analyze_waveform(indata))
 
     def start(self) -> None:
         """Start recording audio."""
@@ -48,6 +55,7 @@ class AudioRecorder:
         with self._lock:
             self._buffer = []
             self._recording = True
+            self._waveform_levels = np.full(self.waveform_bins, 0.06, dtype=np.float32)
 
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
@@ -68,6 +76,7 @@ class AudioRecorder:
 
         with self._lock:
             self._recording = False
+            self._waveform_levels = np.full(self.waveform_bins, 0.06, dtype=np.float32)
 
         if self._stream is not None:
             self._stream.stop()
@@ -85,6 +94,39 @@ class AudioRecorder:
             audio = audio.flatten()
 
         return audio
+
+    def _analyze_waveform(self, indata: NDArray[np.float32]) -> list[float]:
+        """Convert the latest audio chunk into smoothed waveform levels."""
+        samples = np.asarray(indata, dtype=np.float32)
+        if samples.ndim > 1:
+            samples = samples.mean(axis=1)
+        else:
+            samples = samples.reshape(-1)
+
+        if samples.size == 0:
+            return self._waveform_levels.astype(float).tolist()
+
+        segments = np.array_split(np.abs(samples), self.waveform_bins)
+        segment_rms = np.array(
+            [float(np.sqrt(np.mean(segment**2))) if segment.size else 0.0 for segment in segments],
+            dtype=np.float32,
+        )
+        overall_rms = float(np.sqrt(np.mean(samples**2))) if samples.size else 0.0
+
+        # Lift quiet speech and keep the waveform lively without clipping hard peaks.
+        boosted = np.sqrt(segment_rms * 5.5)
+        boosted += min(overall_rms * 1.4, 0.22)
+        boosted = np.clip(boosted, 0.04, 1.0)
+
+        with self._lock:
+            rising = boosted > self._waveform_levels
+            smoothing = np.where(rising, 0.6, 0.22).astype(np.float32)
+            self._waveform_levels = (
+                self._waveform_levels * (1 - smoothing)
+            ) + (boosted * smoothing)
+            levels = np.clip(self._waveform_levels, 0.04, 1.0)
+
+        return levels.astype(float).tolist()
 
     @property
     def is_recording(self) -> bool:

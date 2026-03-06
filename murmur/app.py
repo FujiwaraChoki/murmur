@@ -11,13 +11,14 @@ import time
 import AppKit
 import objc
 import sounddevice as sd
-from PyObjCTools import AppHelper
+from PyObjCTools import AppHelper, MachSignals
 
 from murmur.audio import AudioRecorder
 from murmur.hotkey import HotkeyHandler
 from murmur.overlay import IndicatorState, IndicatorWindow
 from murmur.paste import paste_text
 from murmur.settings import SettingsWindow, load_config
+from murmur.snippets import expand_snippets
 from murmur.transcribe import Transcriber
 from murmur.updater import UpdateChecker, UpdateResult
 
@@ -146,12 +147,14 @@ class MurmurApp:
         self,
         model_name: str | None = None,
         hotkey: str | None = None,
+        microphone_index: int | None = None,
     ):
         """Initialize the Murmur app.
 
         Args:
             model_name: HuggingFace model name for parakeet-mlx (overrides config).
             hotkey: Hotkey combination string (overrides config).
+            microphone_index: Audio input device index (overrides config).
         """
         # Load configuration
         self._config = load_config()
@@ -161,6 +164,8 @@ class MurmurApp:
             self._config["model"] = model_name
         if hotkey:
             self._config["hotkey"] = hotkey
+        if microphone_index is not None:
+            self._config["microphone_index"] = microphone_index
 
         self._transcriber: Transcriber | None = None
         self._recorder: AudioRecorder | None = None
@@ -172,6 +177,21 @@ class MurmurApp:
         self._lock = threading.Lock()
         self._running = False
         self._model_loaded = False
+
+    def _show_hotkey_permission_alert(self) -> None:
+        """Explain how to enable the global hotkey when macOS blocks event taps."""
+        alert = AppKit.NSAlert.alloc().init()
+        alert.setMessageText_("Global Hotkey Needs Input Monitoring")
+        alert.setInformativeText_(
+            "Murmur can run, but macOS is blocking the global shortcut. "
+            "Grant Input Monitoring access, then restart Murmur."
+        )
+        alert.setAlertStyle_(AppKit.NSAlertStyleWarning)
+        alert.addButtonWithTitle_("Open System Settings")
+        alert.addButtonWithTitle_("Later")
+
+        if alert.runModal() == AppKit.NSAlertFirstButtonReturn:
+            HotkeyHandler.request_input_monitoring_permission()
 
     @property
     def model_name(self) -> str:
@@ -221,6 +241,7 @@ class MurmurApp:
                 if audio.size > 0 and self._transcriber:
                     text = self._transcriber.transcribe(audio)
                     if text:
+                        text = expand_snippets(text, self._config.get("snippets"))
                         # Small delay to ensure we're not still in hotkey release
                         time.sleep(0.15)
                         paste_text(text)
@@ -248,6 +269,7 @@ class MurmurApp:
                 sd.default.device[0] = mic_idx
 
             self._recorder = AudioRecorder(sample_rate=self._transcriber.sample_rate)
+            self._recorder.on_waveform_update = self._update_indicator_waveform
 
             self._model_loaded = True
             print("Model loaded successfully!")
@@ -303,7 +325,8 @@ class MurmurApp:
                         on_press_start=self._start_recording,
                         on_release_end=self._stop_recording,
                     )
-                    self._hotkey_handler.start()
+                    if not self._hotkey_handler.start():
+                        self._show_hotkey_permission_alert()
                     print(f"Hotkey updated to: {new_hotkey}")
                 except Exception as e:
                     print(f"Failed to update hotkey: {e}")
@@ -341,16 +364,23 @@ class MurmurApp:
         )
         self._settings_window.show()
 
+    def _update_indicator_waveform(self, levels: list[float]) -> None:
+        """Forward live waveform levels from the recorder into the overlay."""
+        if self._indicator:
+            self._indicator.update_waveform(levels)
+
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for clean shutdown."""
 
-        def signal_handler(signum, frame):
+        def signal_handler(signum, frame=None):
             print("\nShutting down...")
             self.stop()
-            sys.exit(0)
+            AppHelper.stopEventLoop()
 
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+        # AppHelper installs a Mach-backed SIGINT handler when requested via
+        # runEventLoop(installInterrupt=True), which makes Ctrl+C work while the
+        # Cocoa event loop is active. We only need to wire SIGTERM ourselves.
+        MachSignals.signal(signal.SIGTERM, signal_handler)
 
     def run(self) -> None:
         """Run the Murmur application."""
@@ -375,8 +405,8 @@ class MurmurApp:
 
         # Create and show the indicator window
         self._indicator = IndicatorWindow(
-            width=70,
-            height=10,
+            width=80,
+            height=28,
             on_click=self._open_settings,
         )
         self._indicator.show()
@@ -391,13 +421,15 @@ class MurmurApp:
             on_press_start=self._start_recording,
             on_release_end=self._stop_recording,
         )
-        self._hotkey_handler.start()
+        if not self._hotkey_handler.start():
+            self._show_hotkey_permission_alert()
 
         # Run the macOS event loop
         print("Murmur is running. Press Ctrl+C to quit.")
         try:
-            # Use AppHelper for proper event loop handling
-            AppHelper.runEventLoop()
+            # installInterrupt=True bridges Ctrl+C into the Cocoa run loop so
+            # terminal-launched copies can exit cleanly.
+            AppHelper.runEventLoop(installInterrupt=True)
         except KeyboardInterrupt:
             pass
         finally:
@@ -407,6 +439,7 @@ class MurmurApp:
         """Quit the application from menu."""
         self.stop()
         AppHelper.stopEventLoop()
+        AppKit.NSApplication.sharedApplication().terminate_(None)
 
     def stop(self) -> None:
         """Stop the application."""
@@ -432,12 +465,18 @@ class MurmurApp:
 def run_app(
     model_name: str | None = None,
     hotkey: str | None = None,
+    microphone_index: int | None = None,
 ) -> None:
     """Run the Murmur application.
 
     Args:
         model_name: HuggingFace model name for parakeet-mlx.
         hotkey: Hotkey combination string.
+        microphone_index: Audio input device index.
     """
-    app = MurmurApp(model_name=model_name, hotkey=hotkey)
+    app = MurmurApp(
+        model_name=model_name,
+        hotkey=hotkey,
+        microphone_index=microphone_index,
+    )
     app.run()

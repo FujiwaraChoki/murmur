@@ -2,29 +2,23 @@
 
 from __future__ import annotations
 
-import sys
-from io import StringIO
 from unittest.mock import MagicMock, Mock, patch
-
-import pytest
 
 
 class TestArgumentParsing:
     """Tests for argument parsing."""
 
     def test_default_model_argument(self):
-        """Default model is parakeet-tdt-0.6b-v2."""
+        """Model override defaults to None."""
         from murmur.main import main
 
         with patch("sys.argv", ["murmur", "--version"]):
-            with patch("murmur.main.print") as mock_print:
+            with patch("murmur.main.print"):
                 main()
-        # The default model is used when not specified
+        # Version mode exits before app startup; this verifies parsing still works.
 
     def test_custom_model_argument(self):
         """--model sets custom model."""
-        import argparse
-
         from murmur.main import main
 
         with patch("sys.argv", ["murmur", "--model", "custom-model", "--version"]):
@@ -41,12 +35,30 @@ class TestArgumentParsing:
                 assert result == 0
 
     def test_default_hotkey_argument(self):
-        """Default hotkey is alt+shift."""
+        """Hotkey override defaults to None."""
         from murmur.main import main
 
         with patch("sys.argv", ["murmur", "--version"]):
             with patch("murmur.main.print"):
                 main()
+
+    def test_device_argument(self):
+        """--device parses an input device override."""
+        from murmur.main import main
+
+        with patch("sys.argv", ["murmur", "--device", "3", "--version"]):
+            with patch("murmur.main.print"):
+                result = main()
+                assert result == 0
+
+    def test_device_short_flag(self):
+        """-d works same as --device."""
+        from murmur.main import main
+
+        with patch("sys.argv", ["murmur", "-d", "3", "--version"]):
+            with patch("murmur.main.print"):
+                result = main()
+                assert result == 0
 
     def test_custom_hotkey_argument(self):
         """--hotkey sets custom hotkey."""
@@ -91,7 +103,7 @@ class TestArgumentParsing:
         from murmur.main import main
 
         with patch("sys.argv", ["murmur", "-v"]):
-            with patch("murmur.main.print") as mock_print:
+            with patch("murmur.main.print"):
                 result = main()
                 assert result == 0
 
@@ -183,18 +195,47 @@ class TestCommandExecution:
         assert __version__ in output
 
     def test_main_starts_app(self):
-        """Normal invocation calls run_app."""
+        """Normal invocation uses saved config unless overridden."""
         from murmur.main import main
 
         mock_run_app = Mock()
+        mock_module = MagicMock()
+        mock_module.run_app = mock_run_app
 
         with patch("sys.argv", ["murmur"]):
             with patch("murmur.main.print"):
-                with patch("murmur.app.run_app", mock_run_app):
-                    with patch.dict("sys.modules", {"murmur.app": MagicMock(run_app=mock_run_app)}):
-                        # Import and patch at the point of use
-                        with patch("murmur.main.run_app", mock_run_app, create=True):
-                            pass  # Would need to restructure to test properly
+                with patch.dict("sys.modules", {"murmur.app": mock_module}):
+                    result = main()
+
+        assert result == 0
+        mock_run_app.assert_called_once_with(
+            model_name=None,
+            hotkey=None,
+            microphone_index=None,
+        )
+
+    def test_main_passes_cli_overrides_to_app(self):
+        """Explicit CLI overrides are forwarded to run_app."""
+        from murmur.main import main
+
+        mock_run_app = Mock()
+        mock_module = MagicMock()
+        mock_module.run_app = mock_run_app
+
+        with patch(
+            "sys.argv",
+            ["murmur", "--model", "custom-model", "--hotkey", "ctrl+alt+r", "--device", "2"],
+        ):
+            with patch("murmur.main.print"):
+                with patch.dict("sys.modules", {"murmur.app": mock_module}):
+                    result = main()
+
+        assert result == 0
+        mock_run_app.assert_called_once_with(
+            model_name="custom-model",
+            hotkey="ctrl+alt+r",
+            microphone_index=2,
+        )
 
     def test_keyboard_interrupt_handled(self):
         """Ctrl+C exits gracefully."""

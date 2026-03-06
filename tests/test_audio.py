@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import threading
-from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
-import sounddevice as sd
 from murmur.audio import AudioRecorder, get_default_input_device, list_audio_devices
 
 
@@ -90,6 +87,36 @@ class TestAudioRecorder:
         test_data = np.array([[0.1], [0.2], [0.3]], dtype=np.float32)
         recorder._audio_callback(test_data, 3, {}, None)
         assert len(recorder._buffer) == 0
+
+    def test_audio_callback_emits_waveform_levels(self):
+        """Callback publishes normalized waveform levels while recording."""
+        recorder = AudioRecorder()
+        updates: list[list[float]] = []
+        recorder.on_waveform_update = updates.append
+        recorder._recording = True
+
+        test_data = np.linspace(-0.4, 0.4, 128, dtype=np.float32).reshape(-1, 1)
+        recorder._audio_callback(test_data, len(test_data), {}, None)
+
+        assert len(updates) == 1
+        assert len(updates[0]) == recorder.waveform_bins
+        assert min(updates[0]) >= 0.04
+        assert max(updates[0]) <= 1.0
+
+    def test_waveform_analysis_flattens_multichannel_audio(self):
+        """Waveform analysis supports multichannel input."""
+        recorder = AudioRecorder(channels=2)
+
+        stereo = np.column_stack(
+            (
+                np.linspace(-0.2, 0.2, 96, dtype=np.float32),
+                np.linspace(0.3, -0.3, 96, dtype=np.float32),
+            )
+        )
+        levels = recorder._analyze_waveform(stereo)
+
+        assert len(levels) == recorder.waveform_bins
+        assert all(0.04 <= level <= 1.0 for level in levels)
 
     def test_recorded_audio_is_1d(self, mock_sounddevice):
         """Output array is flattened to 1D."""

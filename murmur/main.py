@@ -15,14 +15,21 @@ def main() -> int:
     parser.add_argument(
         "--model",
         "-m",
-        default="mlx-community/parakeet-tdt-0.6b-v2",
-        help="HuggingFace model name for parakeet-mlx (default: mlx-community/parakeet-tdt-0.6b-v2)",
+        default=None,
+        help="Override the configured HuggingFace model name for parakeet-mlx",
     )
     parser.add_argument(
         "--hotkey",
         "-k",
-        default="alt+shift",
-        help="Hotkey combination to hold for recording (default: alt+shift)",
+        default=None,
+        help="Override the configured hotkey combination for recording",
+    )
+    parser.add_argument(
+        "--device",
+        "-d",
+        type=int,
+        default=None,
+        help="Override the configured audio input device index",
     )
     parser.add_argument(
         "--list-devices",
@@ -62,13 +69,22 @@ def main() -> int:
     # Run the app with overlay indicator
     from murmur.app import run_app
 
-    print(f"Starting Murmur with hotkey: {args.hotkey}")
-    print(f"Using model: {args.model}")
+    print("Starting Murmur...")
+    if args.hotkey:
+        print(f"Overriding hotkey via CLI: {args.hotkey}")
+    if args.model:
+        print(f"Overriding model via CLI: {args.model}")
+    if args.device is not None:
+        print(f"Overriding microphone via CLI: device {args.device}")
     print("Hold the hotkey to record, release to transcribe.")
     print("Look for the indicator bar at the bottom of your screen.")
 
     try:
-        run_app(model_name=args.model, hotkey=args.hotkey)
+        run_app(
+            model_name=args.model,
+            hotkey=args.hotkey,
+            microphone_index=args.device,
+        )
     except KeyboardInterrupt:
         print("\nMurmur stopped.")
         return 0

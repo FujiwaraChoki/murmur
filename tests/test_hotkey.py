@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import threading
 import time
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -182,6 +181,14 @@ class TestHotkeyValidation:
         is_valid, error = HotkeyHandler.validate_hotkey("alt+shift")
         assert is_valid is True
 
+    def test_validate_rejects_terminal_control_shortcuts(self):
+        """Dangerous Ctrl shortcuts are rejected for terminal-launched app use."""
+        from murmur.hotkey import HotkeyHandler
+
+        is_valid, error = HotkeyHandler.validate_hotkey("ctrl+z")
+        assert is_valid is False
+        assert "terminal shortcuts" in error.lower()
+
 
 class TestModifierChecking:
     """Tests for modifier flag checking."""
@@ -233,16 +240,30 @@ class TestLifecycle:
         from murmur.hotkey import HotkeyHandler
 
         with patch("murmur.hotkey.Quartz") as mock_quartz:
+            mock_quartz.CGPreflightListenEventAccess.return_value = True
             mock_quartz.CGEventTapCreate.return_value = MagicMock()
             mock_quartz.CFMachPortCreateRunLoopSource.return_value = MagicMock()
             mock_quartz.CFRunLoopGetCurrent.return_value = MagicMock()
+            mock_quartz.kCGEventTapOptionListenOnly = "listen-only"
 
             handler = HotkeyHandler(hotkey="cmd+shift+space")
             assert handler._tap is None
-            handler.start()
+            assert handler.start() is True
             # Give thread time to start
             time.sleep(0.1)
             handler.stop()
+            assert mock_quartz.CGEventTapCreate.call_args.args[2] == "listen-only"
+
+    def test_start_returns_false_without_input_monitoring_permission(self):
+        """start() exits early when Input Monitoring has not been granted."""
+        from murmur.hotkey import HotkeyHandler
+
+        with patch("murmur.hotkey.Quartz") as mock_quartz:
+            mock_quartz.CGPreflightListenEventAccess.return_value = False
+
+            handler = HotkeyHandler(hotkey="cmd+shift+space")
+            assert handler.start() is False
+            mock_quartz.CGEventTapCreate.assert_not_called()
 
     def test_stop_cleans_up(self):
         """stop() cleans up resources."""
