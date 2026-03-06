@@ -135,11 +135,15 @@ cat > "$BUILD_DIR/murmur.spec" << EOF
 # -*- mode: python ; coding: utf-8 -*-
 import sys
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
 # Get the project root
 project_root = Path('$PROJECT_DIR')
+mlx_hiddenimports = collect_submodules('mlx')
+parakeet_hiddenimports = collect_submodules('parakeet_mlx')
+mlx_datas = collect_data_files('mlx')
 
 a = Analysis(
     ['$PROJECT_DIR/murmur/main.py'],
@@ -147,7 +151,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('$ASSETS_DIR', 'assets'),
-    ],
+    ] + mlx_datas,
     hiddenimports=[
         'murmur',
         'murmur.app',
@@ -171,7 +175,7 @@ a = Analysis(
         'mlx.nn',
         'numpy',
         'huggingface_hub',
-    ],
+    ] + mlx_hiddenimports + parakeet_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
