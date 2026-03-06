@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 
 import numpy as np
 import soundfile as sf
 from numpy.typing import NDArray
+
+logger = logging.getLogger("murmur.transcribe")
 
 
 class Transcriber:
@@ -25,9 +28,11 @@ class Transcriber:
     def load_model(self) -> None:
         """Load the Parakeet model. Call this before transcribing."""
         if self._model is None:
+            logger.debug("Loading parakeet model: %s", self.model_name)
             from parakeet_mlx import from_pretrained
 
             self._model = from_pretrained(self.model_name)
+            logger.debug("Parakeet model loaded")
 
     @property
     def model(self):
@@ -72,9 +77,12 @@ class Transcriber:
         try:
             # Write audio to temp file
             sf.write(temp_path, audio, self.sample_rate)
+            duration_s = len(audio) / self.sample_rate
+            logger.debug("Wrote %.2fs audio to %s", duration_s, temp_path)
 
             # Transcribe from file
             result = self.model.transcribe(temp_path)
+            logger.debug("Transcription complete: %r", result.text.strip())
             return result.text.strip()
         finally:
             # Clean up temp file

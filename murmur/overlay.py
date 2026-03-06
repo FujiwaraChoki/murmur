@@ -18,9 +18,6 @@ class IndicatorState(Enum):
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
 
-
-
-
 class ClickableWindow(AppKit.NSWindow):
     """Custom NSWindow subclass that accepts mouse events when borderless."""
 
@@ -134,7 +131,6 @@ class IndicatorView(AppKit.NSView):
         inset_bounds = Quartz.CGRectInset(bounds, 0.5, 0.5)
         self._create_rounded_rect_path(context, inset_bounds)
         Quartz.CGContextStrokePath(context)
-
 
     def _draw_idle_line(self, context, bounds):
         """Draw the minimal idle baseline."""

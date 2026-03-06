@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 import pyperclip
 import Quartz
+
+logger = logging.getLogger("murmur.paste")
 
 
 def paste_text(text: str, restore_clipboard: bool = True) -> None:
@@ -19,6 +22,8 @@ def paste_text(text: str, restore_clipboard: bool = True) -> None:
     """
     if not text:
         return
+
+    logger.debug("Pasting text (%d chars)", len(text))
 
     # Save original clipboard content if requested
     original_clipboard = None

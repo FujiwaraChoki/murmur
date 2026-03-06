@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 
 import numpy as np
 import sounddevice as sd
 from numpy.typing import NDArray
+
+logger = logging.getLogger("murmur.audio")
 
 
 class AudioRecorder:
@@ -40,7 +43,7 @@ class AudioRecorder:
     ) -> None:
         """Callback for audio stream."""
         if status:
-            print(f"Audio status: {status}")
+            logger.warning("Audio stream status: %s", status)
         with self._lock:
             if self._recording:
                 self._buffer.append(indata.copy())
@@ -49,21 +52,29 @@ class AudioRecorder:
 
     def start(self) -> None:
         """Start recording audio."""
-        if self._recording:
-            return
-
         with self._lock:
+            if self._recording:
+                return
             self._buffer = []
             self._recording = True
             self._waveform_levels = np.full(self.waveform_bins, 0.06, dtype=np.float32)
 
-        self._stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=self.channels,
-            dtype=np.float32,
-            callback=self._audio_callback,
-        )
-        self._stream.start()
+        try:
+            stream = sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=self.channels,
+                dtype=np.float32,
+                callback=self._audio_callback,
+            )
+            stream.start()
+            self._stream = stream
+        except Exception:
+            # Keep internal state consistent if stream startup fails.
+            with self._lock:
+                self._recording = False
+                self._buffer = []
+            self._stream = None
+            raise
 
     def stop(self) -> NDArray[np.float32]:
         """Stop recording and return the recorded audio.
@@ -71,17 +82,21 @@ class AudioRecorder:
         Returns:
             Recorded audio as a float32 numpy array.
         """
-        if not self._recording:
-            return np.array([], dtype=np.float32)
-
         with self._lock:
+            was_recording = self._recording
             self._recording = False
             self._waveform_levels = np.full(self.waveform_bins, 0.06, dtype=np.float32)
-
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
+            stream = self._stream
             self._stream = None
+
+        if stream is not None:
+            try:
+                stream.stop()
+            finally:
+                stream.close()
+
+        if not was_recording:
+            return np.array([], dtype=np.float32)
 
         with self._lock:
             if not self._buffer:
@@ -131,7 +146,8 @@ class AudioRecorder:
     @property
     def is_recording(self) -> bool:
         """Check if currently recording."""
-        return self._recording
+        with self._lock:
+            return self._recording
 
 
 def list_audio_devices() -> list[dict]:

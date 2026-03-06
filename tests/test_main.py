@@ -205,7 +205,8 @@ class TestCommandExecution:
         with patch("sys.argv", ["murmur"]):
             with patch("murmur.main.print"):
                 with patch.dict("sys.modules", {"murmur.app": mock_module}):
-                    result = main()
+                    with patch("murmur.main.setup_logging"), patch("murmur.main._ensure_model_cached"):
+                        result = main()
 
         assert result == 0
         mock_run_app.assert_called_once_with(
@@ -228,12 +229,33 @@ class TestCommandExecution:
         ):
             with patch("murmur.main.print"):
                 with patch.dict("sys.modules", {"murmur.app": mock_module}):
-                    result = main()
+                    with patch("murmur.main.setup_logging"), patch("murmur.main._ensure_model_cached"):
+                        result = main()
 
         assert result == 0
         mock_run_app.assert_called_once_with(
             model_name="custom-model",
             hotkey="ctrl+alt+r",
+            microphone_index=2,
+        )
+
+    def test_device_argument_passed_to_run_app(self):
+        """--device is forwarded to run_app."""
+        from murmur.main import main
+
+        mock_run_app = Mock()
+        mock_module = MagicMock(run_app=mock_run_app)
+
+        with patch("sys.argv", ["murmur", "--device", "2"]):
+            with patch("murmur.main.print"):
+                with patch.dict("sys.modules", {"murmur.app": mock_module}):
+                    with patch("murmur.main.setup_logging"), patch("murmur.main._ensure_model_cached"):
+                        result = main()
+
+        assert result == 0
+        mock_run_app.assert_called_once_with(
+            model_name=None,
+            hotkey=None,
             microphone_index=2,
         )
 
@@ -251,6 +273,7 @@ class TestCommandExecution:
         with patch("sys.argv", ["murmur"]):
             with patch("murmur.main.print"):
                 with patch.dict("sys.modules", {"murmur.app": mock_module}):
-                    result = main()
+                    with patch("murmur.main.setup_logging"), patch("murmur.main._ensure_model_cached"):
+                        result = main()
                     # Should handle KeyboardInterrupt and return 0
                     assert result == 0

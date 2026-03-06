@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
 from typing import Callable
 
 import Quartz
+
+logger = logging.getLogger("murmur.hotkey")
 
 
 class HotkeyHandler:
@@ -119,6 +122,8 @@ class HotkeyHandler:
             if part in self.MODIFIER_MAP:
                 self._target_modifiers |= self.MODIFIER_MAP[part]
             elif part in self.KEYCODE_MAP:
+                if self._target_keycode is not None:
+                    raise ValueError("Hotkey can include only one non-modifier key")
                 self._target_keycode = self.KEYCODE_MAP[part]
             else:
                 raise ValueError(f"Unknown key: '{part}'")
@@ -199,7 +204,7 @@ class HotkeyHandler:
                                         target=self.on_release_end, daemon=True
                                     ).start()
         except Exception:
-            pass  # Silently ignore errors to prevent crashes
+            logger.debug("Error in event callback", exc_info=True)
 
         return event
 
@@ -224,7 +229,7 @@ class HotkeyHandler:
         if self._tap is None:
             self._running = False
             self._startup_event.set()
-            print("Failed to create event tap. Grant Input Monitoring permission and restart Murmur.")
+            logger.error("Failed to create event tap. Grant Input Monitoring permission and restart Murmur.")
             return
 
         self._run_loop_source = Quartz.CFMachPortCreateRunLoopSource(
@@ -252,10 +257,11 @@ class HotkeyHandler:
             return self._tap is not None
 
         if not self.has_input_monitoring_permission():
-            print("Global hotkey unavailable: Input Monitoring permission has not been granted.")
+            logger.warning("Global hotkey unavailable: Input Monitoring permission has not been granted.")
             return False
 
         self._startup_event.clear()
+        logger.debug("Starting hotkey listener for '%s'", self.hotkey_str)
         self._running = True
         self._tap_thread = threading.Thread(target=self._run_tap, daemon=True)
         self._tap_thread.start()
@@ -264,6 +270,7 @@ class HotkeyHandler:
 
     def stop(self) -> None:
         """Stop listening for the hotkey."""
+        logger.debug("Stopping hotkey listener")
         self._running = False
 
         if self._tap:
@@ -322,6 +329,10 @@ class HotkeyHandler:
 
         if not has_modifier:
             return False, "Hotkey must include at least one modifier (cmd, ctrl, alt, shift)"
+
+        key_count = len(keys)
+        if key_count > 1:
+            return False, "Hotkey can include only one non-modifier key"
 
         # Modifier-only hotkeys need at least 2 modifiers to avoid accidental triggers
         if modifier_count == len(parts) and modifier_count < 2:

@@ -152,7 +152,8 @@ Settings are stored in `~/.config/murmur/config.json`. You can also access setti
       "trigger": "my signature",
       "replacement": "Best regards,\\nChoki"
     }
-  ]
+  ],
+  "check_updates": true
 }
 ```
 
